@@ -1,6 +1,5 @@
 {
   "_comment_main": "This is an example configuration file for AgenticMaid. All comments are illustrative; actual JSON does not support comments. Use descriptive keys like '_comment' or remove them for a clean JSON.",
-
   "multi_agent_dispatch": {
     "_comment": "Configuration for the multi-agent dispatch feature.",
     "enabled": true,
@@ -23,7 +22,6 @@
     "default_api_key": "your_global_default_google_api_key_here_if_not_in_env",
     "default_base_url": "your_global_default_base_url_here_if_needed"
   },
-
   "ai_services": {
     "_comment_ai": "Configuration for different AI/LLM services. Keys here are service names you can reference.",
     "google_gemini_default": {
@@ -55,7 +53,6 @@
       "base_url": "http://localhost:1234/v1"
     }
   },
-
   "mcp_servers": {
     "_comment_mcp": "Configuration for Multi-Server MCP Client. Define your MCP server instances here.",
     "server_1_local_fastapi": {
@@ -73,12 +70,10 @@
       "description": "An MCP server interacted with via a CLI tool."
     }
   },
-
   "scheduled_tasks": [
     {
       "_comment": "Example of a scheduled task. 'agent_id' or 'model_config_name' is used to determine the agent/LLM.",
       "name": "Hourly Summary Bot",
-      "cron_expression": "0 * * * *",
       "cron_expression": "0 * * * *",
       "prompt": "Generate a brief summary of activities from the last hour.",
       "agent_id": "summary_agent_config_ref",
@@ -114,14 +109,11 @@
        "system_prompt": "You are an orchestrator. The available agents are: summary_agent_config_ref, report_agent_v2. You can use the 'dispatch' tool to delegate tasks to them."
      }
   },
-
   "chat_services": [
     {
       "_comment": "Configuration for a chat service. 'llm_service_name' refers to a key in 'ai_services'.",
       "service_id": "general_support_chat_gemini",
       "llm_service_name": "google_gemini_default",
-      "system_prompt": "You are a helpful and friendly customer support assistant for the AgenticMaid project. Your goal is to provide clear, accurate, and concise answers.",
-      "role_prompt": "Please answer the user's question based on the project's documentation and capabilities. Be polite and professional.",
       "streaming_api_endpoint": "/chat/v1/streams/general_support_chat_gemini",
       "_comment_streaming": "Conceptual endpoint for clients to connect for streaming responses.",
       "non_streaming_api_endpoint": "/chat/v1/completions/general_support_chat_gemini",

@@ -178,7 +178,20 @@ async def client_chat(request: ChatRequest = Body(...)):
     client = await get_mcp_client() # Ensures client is initialized
 
     # Convert Pydantic ChatMessage to dicts for AgenticMaid
-    messages_dict_list = [msg.model_dump() for msg in request.messages]
+    messages_dict_list = []
+    chat_service_config = None
+    for service in client.config.get("chat_services", []):
+        if service.get("service_id") == request.service_id:
+            chat_service_config = service
+            break
+
+    if chat_service_config:
+        if chat_service_config.get("system_prompt"):
+            messages_dict_list.append({"role": "system", "content": chat_service_config["system_prompt"]})
+        if chat_service_config.get("role_prompt"):
+            messages_dict_list.append({"role": "user", "content": chat_service_config["role_prompt"]})
+
+    messages_dict_list.extend([msg.model_dump() for msg in request.messages])
 
     logger.info(f"Received chat request for service_id: {request.service_id}")
     try:

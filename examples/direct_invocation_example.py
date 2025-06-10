@@ -5,15 +5,16 @@ import os
 # This assumes the script is run from the root of the 'Agent' project directory,
 # or that AgenticMaid is in the PYTHONPATH.
 # For direct execution within the AgenticMaid/examples directory, you might need to adjust sys.path:
-# import sys
-# sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
-from AgenticMaid.client import ClientAgenticMaid # Assuming the class is ClientAgenticMaid
+import sys
+# Add the project root to the Python path
+sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
+from ..client import AgenticMaid
 
 async def main():
     """
-    Demonstrates how to instantiate and use ClientAgenticMaid with a direct dictionary configuration.
+    Demonstrates how to instantiate and use AgenticMaid with a direct dictionary configuration.
     """
-    print("Starting direct invocation example for ClientAgenticMaid...")
+    print("Starting direct invocation example for AgenticMaid...")
 
     # 1. Define the configuration as a Python dictionary
     # This configuration is minimal and assumes certain environment variables might be set
@@ -64,13 +65,13 @@ async def main():
 
     print(f"Using direct dictionary configuration: {direct_config}")
 
-    # 2. Instantiate ClientAgenticMaid with the dictionary
+    # 2. Instantiate AgenticMaid with the dictionary
     # Note: For API keys (like Google's), ensure they are either in your environment variables
-    # (e.g., GOOGLE_API_KEY) and picked up by the .env loading mechanism within ClientAgenticMaid,
+    # (e.g., GOOGLE_API_KEY) and picked up by the .env loading mechanism within AgenticMaid,
     # or explicitly provided in the 'ai_services' part of the dictionary if not using .env.
     # The AgenticMaid/.env file is typically located alongside client.py.
-    print("\nInstantiating ClientAgenticMaid...")
-    client = ClientAgenticMaid(config_path_or_dict=direct_config)
+    print("\nInstantiating AgenticMaid...")
+    client = AgenticMaid(config_path_or_dict=direct_config)
 
     # 3. Perform asynchronous initialization
     print("\nPerforming asynchronous initialization (fetching MCP tools, etc.)...")
@@ -80,12 +81,12 @@ async def main():
     initialization_successful = await client.async_initialize()
 
     if not initialization_successful or not client.config:
-        print("ClientAgenticMaid initialization failed. Check configuration and logs.")
+        print("AgenticMaid initialization failed. Check configuration and logs.")
         if client.config is None:
             print("Reason: Client configuration object is None after init attempt.")
         return
 
-    print("ClientAgenticMaid initialized successfully.")
+    print("AgenticMaid initialized successfully.")
     print(f"Fetched {len(client.mcp_tools)} MCP tools: {[tool.name for tool in client.mcp_tools]}")
     if not client.mcp_tools:
         print("Note: No MCP tools were fetched. This is expected if 'mock_mcp_server' is not a real, running MCP server.")

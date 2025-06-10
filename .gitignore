@@ -128,3 +128,5 @@ dmypy.json
 *.swo
 # Log files
 logs/
+
+.rooroo/
