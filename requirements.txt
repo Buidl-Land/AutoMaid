@@ -13,3 +13,5 @@ python-dotenv
 langchain-core
 langchain-mcp-adapters
 langgraph
+langchain-google-vertexai
+croniter

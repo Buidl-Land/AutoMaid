@@ -211,6 +211,7 @@ When a chat request is processed, the final list of messages sent to the AI mode
 
 First, import and initialize the `AgenticMaid`. You need to call `await client.async_initialize()` after creating an instance to complete the asynchronous setup (like fetching MCP tools).
 
+```python
 import asyncio
 from pkg_AgenticMaid.client import ClientAgenticMaid # Placeholder: Actual class name from client.py
 
@@ -262,6 +263,7 @@ async def main():
 if __name__ == "__main__":
     asyncio.run(main())
 ```
+
 ### 1.1. Detailed Example of Direct Dictionary Invocation
 
 For a runnable script demonstrating how to instantiate and use `ClientAgenticMaid` with a direct dictionary configuration, including basic operations like chat, please refer to the example file:

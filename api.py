@@ -4,7 +4,7 @@ from typing import Any, List, Dict, Union, Optional
 import logging
 import os
 
-from .client import AgenticMaid # Assuming client.py is in the same directory or accessible
+from client import AgenticMaid # Assuming client.py is in the same directory or accessible
 
 # --- Logging Setup ---
 LOG_DIR = "logs"
