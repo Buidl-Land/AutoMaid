@@ -1,3 +1,17 @@
+# Core Application & API
 fastapi
 pydantic
 uvicorn[standard]
+
+# Scheduling
+schedule
+
+# Configuration
+python-dotenv
+
+# Core LangChain/LangGraph Logic
+langchain-core
+langchain-mcp-adapters
+langgraph
+langchain-google-vertexai
+croniter

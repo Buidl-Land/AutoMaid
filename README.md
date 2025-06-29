@@ -176,12 +176,42 @@ Define configurations for different chat interfaces. Each chat service object in
 }
 ```
 
+##### **Dual-Prompt System**
+
+The `chat_services` configuration now supports a dual-prompt system to provide more context and control over the agent's behavior. This is achieved through two optional fields: `system_prompt` and `role_prompt`.
+
+*   **`system_prompt`**: This prompt is injected as the first message with the `system` role. It's used to give the AI model high-level instructions, context, or constraints that should apply to the entire conversation. For example, you can define the agent's persona, its core function, and its operational boundaries.
+
+*   **`role_prompt`**: This prompt is injected as a `user` message immediately after the system prompt (if one is provided) and before the actual user's message. It's used to guide the AI on how it should behave or what specific role it should adopt for the upcoming turn in the conversation. This can be useful for setting a specific tone or directing the agent's focus for the immediate task.
+
+When a chat request is processed, the final list of messages sent to the AI model will be in the following order:
+1.  System Prompt (if provided)
+2.  Role Prompt (if provided)
+3.  User's Message(s)
+
+**Example with Prompts in `config.json`:**
+```json
+{
+  "chat_services": [
+    {
+      "service_id": "general_support_chat_gemini",
+      "llm_service_name": "google_gemini_default",
+      "system_prompt": "You are a helpful and friendly customer support assistant for the AgenticMaid project. Your goal is to provide clear, accurate, and concise answers.",
+      "role_prompt": "Please answer the user's question based on the project's documentation and capabilities. Be polite and professional.",
+      "streaming_api_endpoint": "/chat/v1/streams/general_support_chat_gemini",
+      "non_streaming_api_endpoint": "/chat/v1/completions/general_support_chat_gemini"
+    }
+  ]
+}
+```
+
 ## Usage
 
 ### 1. Initialization
 
 First, import and initialize the `AgenticMaid`. You need to call `await client.async_initialize()` after creating an instance to complete the asynchronous setup (like fetching MCP tools).
 
+```python
 import asyncio
 from pkg_AgenticMaid.client import ClientAgenticMaid # Placeholder: Actual class name from client.py
 
@@ -233,6 +263,7 @@ async def main():
 if __name__ == "__main__":
     asyncio.run(main())
 ```
+
 ### 1.1. Detailed Example of Direct Dictionary Invocation
 
 For a runnable script demonstrating how to instantiate and use `ClientAgenticMaid` with a direct dictionary configuration, including basic operations like chat, please refer to the example file:
@@ -473,6 +504,78 @@ This command will run all enabled scheduled tasks defined in [`AgenticMaid/confi
 The original "Examples" section is now renumbered.
 
 ]]>
+### 7. Multi-Agent Dispatch
+
+The `AgenticMaid` supports a multi-agent dispatch feature, allowing one agent to invoke another. This enables the creation of sophisticated, hierarchical agent structures where a primary agent can delegate specific tasks to specialized agents.
+
+#### a. Configuration
+
+To enable this feature, you must add the `multi_agent_dispatch` section to your `config.json` file.
+
+**Configuration Fields:**
+
+*   `enabled` (boolean): Set to `true` to enable the feature.
+*   `default_mode` (string): Determines the default invocation mode.
+    *   `synchronous` or `sync`: The calling agent waits for the target agent to complete its task and return a result.
+    *   `concurrent`: The calling agent invokes the target agent and immediately continues its own execution without waiting for a result.
+*   `allowed_invocations` (object): A dictionary defining which agents are permitted to call others.
+    *   The keys are the `agent_id` of the *calling* agent (from the `agents` section of your config).
+    *   The values are an array of strings, where each string is the `agent_id` of a *target* agent that can be called.
+    *   A wildcard `"*"` can be used in the array to allow an agent to call *any* other configured agent.
+
+**Example `config.json` Snippet:**
+
+```json
+{
+  "multi_agent_dispatch": {
+    "enabled": true,
+    "default_mode": "concurrent",
+    "allowed_invocations": {
+      "orchestrator_agent": [
+        "*"
+      ],
+      "summary_agent_config_ref": [
+        "report_agent_v2"
+      ],
+      "report_agent_v2": []
+    }
+  },
+  "agents": {
+    "orchestrator_agent": {
+      "model_config_name": "google_gemini_default"
+    },
+    "summary_agent_config_ref": {
+      "model_config_name": "google_gemini_default"
+    },
+    "report_agent_v2": {
+      "model_config_name": "anthropic_claude4_opus"
+    }
+  }
+}
+```
+
+In this example:
+*   `orchestrator_agent` can call any other agent.
+*   `summary_agent_config_ref` can only call `report_agent_v2`.
+*   `report_agent_v2` cannot call any other agents.
+
+#### b. Usage in Prompts
+
+When the feature is enabled, a `dispatch` tool is automatically made available to the agents that are permitted to call others. To use it, instruct the agent in your prompt to call the `dispatch` tool with the required parameters.
+
+**Dispatch Tool Parameters:**
+
+*   `agent_id` (string): The ID of the target agent to invoke.
+*   `prompt` (string): The prompt or instruction to pass to the target agent.
+*   `mode` (string, optional): The invocation mode (`sync` or `concurrent`). If omitted, the `default_mode` from the configuration is used.
+
+**Example Prompt:**
+
+```
+"Please use the dispatch tool to ask the 'report_agent_v2' to generate a detailed analysis of the latest user feedback. Run this in sync mode."
+```
+
+The agent will then parse this instruction and execute the following tool call: `dispatch(agent_id='report_agent_v2', prompt='Generate a detailed analysis of the latest user feedback.', mode='sync')`.
 ## Examples
 
 ### Full Example Script (`example_usage.py`)
