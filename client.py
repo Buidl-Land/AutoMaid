@@ -14,11 +14,129 @@ from langchain_core.runnables import RunnableConfig
 from langchain_mcp_adapters.client import MultiServerMCPClient
 from langgraph.prebuilt import create_react_agent
 from conversation_logger import get_conversation_logger
-from mcp_stdio_adapter import get_stdio_manager
 from functools import wraps
 import inspect
 
 logger = logging.getLogger(__name__)
+
+def clean_tool_schema_for_gemini(tool):
+    """
+    Clean tool schema to be compatible with Google Gemini API
+    Removes unsupported fields that cause 400 errors
+    """
+    if not hasattr(tool, 'args_schema') or not tool.args_schema:
+        # If no schema, create a proper one based on the tool name and description
+        logger.info(f"Tool {tool.name} has no schema, creating appropriate schema for Gemini compatibility")
+        from pydantic import create_model
+        from typing import Optional
+
+        MinimalModel = create_model(
+            f"{tool.name}Input",
+            input=(Optional[str], Field(description="Input parameter", default=None))
+        )
+
+        tool.args_schema = MinimalModel
+        return tool
+
+    try:
+        # Get the schema as dict
+        if hasattr(tool.args_schema, 'model_json_schema'):
+            schema_dict = tool.args_schema.model_json_schema()
+        elif hasattr(tool.args_schema, 'schema'):
+            schema_dict = tool.args_schema.schema()
+        else:
+            # If schema method doesn't exist, create minimal schema
+            logger.info(f"Tool {tool.name} schema method not available, creating minimal schema")
+            from pydantic import create_model
+
+            MinimalModel = create_model(
+                f"{tool.name}MinimalInput",
+                url=(str, Field(description="URL parameter", default=""))
+            )
+            tool.args_schema = MinimalModel
+            return tool
+
+        # Create a completely clean schema for Gemini - only include what's absolutely necessary
+        clean_schema = {
+            "type": "object"
+        }
+
+        # Only add properties if they exist
+        if "properties" in schema_dict and schema_dict["properties"]:
+            clean_properties = {}
+            for prop_name, prop_details in schema_dict["properties"].items():
+                # Only include essential fields for each property
+                clean_prop = {}
+
+                # Type is required
+                prop_type = prop_details.get("type", "string")
+                clean_prop["type"] = prop_type
+
+                # Description is helpful but optional
+                if "description" in prop_details and prop_details["description"]:
+                    clean_prop["description"] = prop_details["description"]
+
+                clean_properties[prop_name] = clean_prop
+
+            clean_schema["properties"] = clean_properties
+
+        # Only add required if it exists and is not empty
+        if "required" in schema_dict and schema_dict["required"]:
+            clean_schema["required"] = schema_dict["required"]
+
+        # Create a new Pydantic model with the clean schema
+        from pydantic import create_model
+        from typing import Optional
+
+        # Map JSON schema types to Python types
+        type_mapping = {
+            'string': str,
+            'integer': int,
+            'number': float,
+            'boolean': bool,
+            'array': list,
+            'object': dict
+        }
+
+        # Define fields for the new model
+        fields = {}
+        properties = clean_schema.get('properties', {})
+        required_fields = clean_schema.get('required', [])
+
+        for prop_name, prop_details in properties.items():
+            prop_type = prop_details.get('type', 'string')
+            python_type = type_mapping.get(prop_type, str)
+
+            # Make field optional if not in required list
+            if prop_name not in required_fields:
+                python_type = Optional[python_type]
+
+            # Create field with description
+            field_description = prop_details.get('description', '')
+            if field_description:
+                fields[prop_name] = (python_type, Field(description=field_description))
+            else:
+                fields[prop_name] = (python_type, Field())
+
+        # Only create a new model if we have fields
+        if fields:
+            # Create the new model
+            CleanedModel = create_model(
+                f"{tool.name}CleanInput",
+                **fields
+            )
+
+            # Assign the cleaned model back to the tool
+            tool.args_schema = CleanedModel
+        else:
+            # If no fields, set args_schema to None
+            tool.args_schema = None
+
+        return tool
+
+    except Exception as e:
+        logger.warning(f"Could not clean schema for tool '{tool.name}': {e}. Using original tool.")
+        return tool
 
 class DispatchInput(BaseModel):
     agent_id: str = Field(description="The unique ID of the agent to invoke (must be defined in the config).")
@@ -43,7 +161,6 @@ class AgenticMaid:
         self.mcp_client = None
         self.mcp_tools = []
         self.mcp_sessions = {}  # Stores persistent sessions
-        self.stdio_manager = None  # stdio tool manager
         self.agents = {}  # Stores agents
         self.scheduler = schedule
         self.scheduler_thread = None
@@ -60,16 +177,17 @@ class AgenticMaid:
         else:
             self.conversation_logger = None
 
-        # Initialize stdio tool manager
-        self.stdio_manager = get_stdio_manager()
-        if self.conversation_logger:
-            self.stdio_manager.set_conversation_logger(self.conversation_logger)
-
         logger.info("AgenticMaid instance created.")
 
     def _wrap_tool_with_logging(self, tool, task_name="current_task"):
         """Wrap a tool to add conversation logging using monkey patching"""
         if not self.conversation_logger:
+            return tool
+
+        # Do not wrap if the tool does not have standard run/arun methods
+        # This is common for tools loaded from MCP adapters (e.g., StructuredTool)
+        if not hasattr(tool, 'run') or not hasattr(tool, 'arun'):
+            logger.warning(f"Failed to wrap tool {tool.name} with logging: Tool does not have 'run' or 'arun' methods.")
             return tool
 
         # Store original methods
@@ -155,76 +273,6 @@ class AgenticMaid:
         tool.arun = logged_arun
 
         return tool
-
-    def _create_langchain_stdio_tools(self):
-        """Convert stdio tools to langchain tools"""
-        from langchain_core.tools import Tool
-        import asyncio
-
-        stdio_langchain_tools = []
-        for tool_name, stdio_tool in self.stdio_manager.tools.items():
-
-            def create_tool_func(name):
-                def tool_func(*args, **kwargs):
-                    """Wrapper function for stdio tool"""
-                    # Handle both positional and keyword arguments
-                    if args:
-                        # If there are positional arguments, treat the first one as input
-                        if isinstance(args[0], str):
-                            # If it's a string, try to parse as JSON or use as URL
-                            try:
-                                import json
-                                kwargs.update(json.loads(args[0]))
-                            except (json.JSONDecodeError, TypeError):
-                                # If not JSON, assume it's a URL parameter
-                                kwargs['url'] = args[0]
-                        elif isinstance(args[0], dict):
-                            kwargs.update(args[0])
-
-                    # Get current event loop or create new one
-                    try:
-                        loop = asyncio.get_event_loop()
-                        if loop.is_running():
-                            # If loop is running, we need to run in a thread
-                            import concurrent.futures
-                            with concurrent.futures.ThreadPoolExecutor() as executor:
-                                future = executor.submit(asyncio.run, self._run_stdio_tool(name, kwargs))
-                                result = future.result()
-                        else:
-                            result = loop.run_until_complete(self._run_stdio_tool(name, kwargs))
-                    except RuntimeError:
-                        # No event loop, create one
-                        result = asyncio.run(self._run_stdio_tool(name, kwargs))
-
-                    if result.get("success"):
-                        # Return the most relevant part of the result
-                        if "parsed_output" in result:
-                            return str(result["parsed_output"])
-                        elif "stdout" in result and result["stdout"].strip():
-                            return result["stdout"]
-                        else:
-                            return str(result)
-                    else:
-                        raise Exception(f"Tool {name} failed: {result.get('error', 'Unknown error')}")
-
-                return tool_func
-
-            # Create langchain tool
-            langchain_tool = Tool(
-                name=tool_name,
-                description=stdio_tool.description,
-                func=create_tool_func(tool_name)
-            )
-
-            stdio_langchain_tools.append(langchain_tool)
-
-        # Add stdio tools to mcp_tools list
-        self.mcp_tools.extend(stdio_langchain_tools)
-        logger.info(f"Converted {len(stdio_langchain_tools)} stdio tools to langchain tools")
-
-    async def _run_stdio_tool(self, tool_name: str, kwargs: dict):
-        """Run stdio tool asynchronously"""
-        return await self.stdio_manager.call_tool("current_task", tool_name, kwargs)
 
     async def async_initialize(self, reconfiguring=False):
         """
@@ -415,10 +463,16 @@ class AgenticMaid:
                         from langchain_mcp_adapters.tools import load_mcp_tools
                         server_tools = await load_mcp_tools(session)
 
+                        # Clean the schema of each tool before adding it using the dedicated function
+                        cleaned_tools = []
+                        for tool in server_tools:
+                            cleaned_tool = clean_tool_schema_for_gemini(tool)
+                            cleaned_tools.append(cleaned_tool)
+
                         # Store tools without wrapping to avoid Pydantic issues
                         # We'll wrap them later when creating the agent
-                        self.mcp_tools.extend(server_tools)
-                        logger.info(f"Loaded {len(server_tools)} tools from {server_name}")
+                        self.mcp_tools.extend(cleaned_tools)
+                        logger.info(f"Loaded and cleaned {len(cleaned_tools)} tools from {server_name}")
 
                     except Exception as e:
                         logger.error(f"Failed to create persistent session for {server_name}: {e}")
@@ -439,20 +493,6 @@ class AgenticMaid:
         self.ai_services = ai_config
         for service_name, service_details in self.ai_services.items():
             logger.info(f"AI Service '{service_name}' configured with model: {service_details.get('model')}")
-
-        # Initialize stdio tools
-        stdio_tools_config = self.config.get("stdio_tools", [])
-        if stdio_tools_config:
-            try:
-                self.stdio_manager.register_tools_from_config(stdio_tools_config)
-                stdio_tools = self.stdio_manager.list_tools()
-                logger.info(f"Successfully loaded {len(stdio_tools)} stdio tools")
-
-                # Convert stdio tools to langchain tools
-                self._create_langchain_stdio_tools()
-
-            except Exception as e:
-                logger.error(f"Error loading stdio tools: {e}", exc_info=True)
 
     def _schedule_tasks(self):
         """Schedules tasks based on cron expressions in the configuration."""
@@ -541,8 +581,8 @@ class AgenticMaid:
                 self.conversation_logger.log_conversation_start(task_name, prompt)
 
             # Add retry mechanism for LLM server errors
-            max_retries = 3
-            retry_delay = 5  # seconds
+            max_retries = 5  # Increased retries for 502 errors
+            retry_delay = 3  # Start with shorter delay
 
             for attempt in range(max_retries):
                 try:
@@ -550,18 +590,43 @@ class AgenticMaid:
                     break  # Success, exit retry loop
                 except Exception as e:
                     error_str = str(e)
-                    if "502" in error_str or "Bad Gateway" in error_str:
+                    error_type = type(e).__name__
+
+                    # Handle various server errors and connection issues
+                    retryable_errors = [
+                        "502", "503", "504", "500", "Bad Gateway", "Service Unavailable",
+                        "Gateway Timeout", "Internal Server Error", "Connection error",
+                        "RemoteProtocolError", "Server disconnected", "APIConnectionError",
+                        "ConnectTimeout", "ReadTimeout", "httpcore", "httpx"
+                    ]
+
+                    is_retryable = any(error_code in error_str for error_code in retryable_errors) or \
+                                  any(error_code in error_type for error_code in ["APIConnectionError", "RemoteProtocolError", "ConnectTimeout", "ReadTimeout"])
+
+                    if is_retryable:
                         if attempt < max_retries - 1:
-                            logger.warning(f"LLM server error (attempt {attempt + 1}/{max_retries}): {e}")
+                            logger.warning(f"LLM connection/server error (attempt {attempt + 1}/{max_retries}): {error_type}: {error_str[:100]}...")
                             logger.info(f"Retrying in {retry_delay} seconds...")
                             await asyncio.sleep(retry_delay)
-                            retry_delay *= 2  # Exponential backoff
+                            retry_delay = min(retry_delay * 1.5, 30)  # Exponential backoff with cap
                             continue
                         else:
-                            logger.error(f"LLM server failed after {max_retries} attempts: {e}")
-                            raise
+                            logger.error(f"LLM service failed after {max_retries} attempts. Final error: {e}")
+                            # Return a graceful error response instead of crashing
+                            result_content = f"Sorry, I encountered persistent connection issues when trying to process your request. The LLM service appears to be temporarily unavailable. Please check your network connection and API configuration, then try again later. Error: {error_type}"
+
+                            # Log the error response
+                            if self.conversation_logger:
+                                self.conversation_logger.log_ai_response(task_name, result_content, "error")
+
+                            return {
+                                "status": "error",
+                                "task_name": task_name,
+                                "response": result_content,
+                                "error": str(e)
+                            }
                     else:
-                        # Non-502 error, re-raise immediately
+                        # Non-retryable error, re-raise immediately
                         raise
 
             if response and "messages" in response:
@@ -727,6 +792,13 @@ class AgenticMaid:
         effective_agent_id = calling_agent_id or agent_key
         agent_tools = self.mcp_tools[:]
 
+        # Clean tools again for Gemini API compatibility before creating agent
+        cleaned_agent_tools = []
+        for tool in agent_tools:
+            cleaned_tool = clean_tool_schema_for_gemini(tool)
+            cleaned_agent_tools.append(cleaned_tool)
+        agent_tools = cleaned_agent_tools
+
         # Wrap MCP tools with logging (do this here to avoid Pydantic issues during loading)
         if self.conversation_logger and agent_tools:
             wrapped_tools = []
@@ -765,18 +837,36 @@ class AgenticMaid:
             agent_tools.append(dispatch_tool)
 
         logger.info(f"Creating new ReAct agent '{agent_key}' with LLM '{model_name_or_instance}' and {len(agent_tools)} tools.")
+
+        # Log tool information for troubleshooting
+        logger.debug(f"Agent tools: {[tool.name for tool in agent_tools]}")
+        for tool in agent_tools:
+            if hasattr(tool, 'args_schema') and tool.args_schema:
+                try:
+                    if hasattr(tool.args_schema, 'model_json_schema'):
+                        schema = tool.args_schema.model_json_schema()
+                    elif hasattr(tool.args_schema, 'schema'):
+                        schema = tool.args_schema.schema()
+                    else:
+                        schema = "No schema available"
+                    logger.debug(f"Tool {tool.name} schema: {schema}")
+                except Exception as e:
+                    logger.debug(f"Tool {tool.name} schema error: {e}")
+
         try:
             # Create model instance based on provider configuration
             provider = llm_config.get("provider", "openai").lower()
             if provider == "openai":
                 from langchain_openai import ChatOpenAI
 
-                # Prepare model parameters
+                # Prepare model parameters with improved timeout and retry settings
                 model_params = {
                     "model": model_name_or_instance,
                     "api_key": llm_config.get("api_key"),
                     "base_url": llm_config.get("base_url"),
-                    "temperature": llm_config.get("temperature", 0.7)
+                    "temperature": llm_config.get("temperature", 0.7),
+                    "timeout": llm_config.get("timeout", 60),  # Default 60 seconds timeout
+                    "max_retries": llm_config.get("max_retries", 3),  # Default 3 retries
                 }
 
                 # Add max_tokens if specified

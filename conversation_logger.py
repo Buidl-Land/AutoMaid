@@ -25,11 +25,11 @@ class ConversationLogger:
         self.session_start_time = datetime.now()
         self.lock = threading.Lock()
 
-        # 创建日志目录
+        # Create log directory
         if not os.path.exists(self.log_dir):
             os.makedirs(self.log_dir)
 
-        # 设置文件日志记录器
+        # Set up file logger
         if self.enable_file_logging:
             self._setup_file_logging()
 
@@ -39,18 +39,18 @@ class ConversationLogger:
         log_filename = f"agenticmaid_{timestamp}.log"
         log_filepath = os.path.join(self.log_dir, log_filename)
 
-        # 创建文件处理器
+        # Create file handler
         file_handler = logging.FileHandler(log_filepath, encoding='utf-8')
         file_handler.setLevel(logging.DEBUG)
 
-        # 设置日志格式
+        # Set log format
         formatter = logging.Formatter(
             '%(asctime)s - %(name)s - %(levelname)s - %(message)s',
             datefmt='%Y-%m-%d %H:%M:%S'
         )
         file_handler.setFormatter(formatter)
 
-        # 添加到根日志记录器
+        # Add to root logger
         root_logger = logging.getLogger()
         root_logger.addHandler(file_handler)
         root_logger.setLevel(logging.INFO)
