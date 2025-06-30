@@ -44,9 +44,6 @@ async def main():
     Main entry point for the CLI tool.
     Parses command line arguments, loads configuration, initializes AgenticMaid, and executes all enabled scheduled tasks.
     """
-    # Initialize conversation logger
-    init_conversation_logger(log_dir="logs", enable_file_logging=True)
-
     parser = argparse.ArgumentParser(
         description="Run AgenticMaid tasks from a configuration file.",
         formatter_class=argparse.ArgumentDefaultsHelpFormatter
@@ -72,8 +69,19 @@ async def main():
         logger.error(f"Configuration file not found: {config_file_path}")
         return
 
+    # Initialize conversation logger. This will now use the centralized config manager.
+    init_conversation_logger(log_dir="logs", enable_file_logging=True)
+
+    # Load config for AgenticMaid instantiation
     try:
-        client = AgenticMaid(config_path_or_dict=config_file_path)
+        with open(config_file_path, 'r') as f:
+            config_data = json.load(f)
+    except Exception as e:
+        logger.error(f"Failed to load config file {config_file_path}: {e}", exc_info=True)
+        return
+
+    try:
+        client = AgenticMaid(config_path_or_dict=config_data)
     except Exception as e:
         logger.error(f"Failed to instantiate AgenticMaid with config '{config_file_path}': {e}", exc_info=True)
         return

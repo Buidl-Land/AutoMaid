@@ -126,5 +126,24 @@
       "non_streaming_api_endpoint": "/chat/v1/completions/advanced_claude_chat"
     }
   ],
-  "default_llm_service_name": "google_gemini_default"
+  "default_llm_service_name": "google_gemini_default",
+  "memory_protocol": {
+    "_comment": "Configuration for the agent's long-term memory protocol.",
+    "enabled": true,
+    "retrieval_k": 5,
+    "database": {
+      "_comment": "ChromaDB connection settings. 'mode' can be 'persistent' (local) or 'http' (remote).",
+      "mode": "persistent",
+      "path": "./.rooroo/memory_db",
+      "host": "localhost",
+      "port": 8000
+    },
+    "embedding": {
+      "_comment": "Embedding model settings. Corresponds to an entry in 'ai_services' or can be defined inline.",
+      "provider": "openai",
+      "model_name": "text-embedding-ada-002",
+      "api_key": null,
+      "base_url": null
+    }
+  }
 }

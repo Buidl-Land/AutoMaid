@@ -4,6 +4,9 @@ import logging
 from datetime import datetime
 from typing import Dict, List, Any, Optional
 import threading
+import uuid
+from memory_protocol import MemoryProtocol
+from config_manager import config_manager
 
 class ConversationLogger:
     """
@@ -24,6 +27,11 @@ class ConversationLogger:
         self.conversation_history = []
         self.session_start_time = datetime.now()
         self.lock = threading.Lock()
+
+        self.memory_protocol: Optional[MemoryProtocol] = None
+        memory_config = config_manager.get_section("memory_protocol")
+        if memory_config and memory_config.get("enabled", False):
+            self.memory_protocol = MemoryProtocol(memory_config)
 
         # Create log directory
         if not os.path.exists(self.log_dir):
@@ -71,11 +79,12 @@ class ConversationLogger:
             self.conversation_history.append(conversation_entry)
             logging.info(f"Task started: {task_name}")
 
-    def log_ai_response(self, task_name: str, response: str, status: str = "success"):
-        """Log AI response with full content"""
+    def log_ai_response(self, task_name: str, response: str, status: str = "success", prompt: Optional[str] = None):
+        """Log AI response with full content and ingest to memory."""
         with self.lock:
+            timestamp = datetime.now()
             conversation_entry = {
-                "timestamp": datetime.now().isoformat(),
+                "timestamp": timestamp.isoformat(),
                 "type": "ai_response",
                 "task_name": task_name,
                 "status": status,
@@ -84,6 +93,29 @@ class ConversationLogger:
             }
             self.conversation_history.append(conversation_entry)
             logging.info(f"Task '{task_name}' completed with status: {status}")
+
+            # Ingest into memory if successful and enabled
+            if status == "success" and self.memory_protocol:
+                self._ingest_conversation_summary(task_name, prompt, response, timestamp)
+
+    def _ingest_conversation_summary(self, task_name: str, prompt: str, response: str, timestamp: datetime):
+        """Summarizes and ingests the conversation into the memory protocol."""
+        # For now, we will use a simple concatenation as the "summary".
+        # A more sophisticated summarization engine can be added here later.
+        summary_text = f"Task: {task_name}\nPrompt: {prompt}\nResponse: {response}"
+
+        memory_id = str(uuid.uuid4())
+        metadata = {
+            "id": memory_id,
+            "task_name": task_name,
+            "timestamp": timestamp.isoformat(),
+            "type": "conversation_summary"
+        }
+
+        try:
+            self.memory_protocol.ingest_memory(text=summary_text, metadata=metadata)
+        except Exception as e:
+            logging.error(f"Failed to ingest memory for task '{task_name}': {e}")
 
     def log_error(self, task_name: str, error: str, error_type: str = "general"):
         """Log error with full details"""
@@ -269,7 +301,10 @@ def get_conversation_logger() -> ConversationLogger:
         _global_conversation_logger = ConversationLogger()
     return _global_conversation_logger
 
-def init_conversation_logger(log_dir: str = "logs", enable_file_logging: bool = True) -> ConversationLogger:
+def init_conversation_logger(
+    log_dir: str = "logs",
+    enable_file_logging: bool = True
+) -> ConversationLogger:
     """Initialize global conversation logger"""
     global _global_conversation_logger
     _global_conversation_logger = ConversationLogger(log_dir, enable_file_logging)
