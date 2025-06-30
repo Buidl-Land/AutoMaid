@@ -39,6 +39,60 @@ root_logger.addHandler(file_handler)
 
 logger = logging.getLogger(__name__) # Get a logger for this specific module
 
+async def start_cli_session(client: AgenticMaid):
+    """Starts an interactive command-line session for conversation."""
+    logger.info("Starting interactive CLI session. Type 'exit' or 'quit' to end.")
+
+    # Use the default LLM service name from the config, or the first one if not specified
+    llm_service_name = client.config.get("default_llm_service_name")
+    if not llm_service_name and client.ai_services:
+        llm_service_name = list(client.ai_services.keys())[0]
+
+    if not llm_service_name:
+        logger.error("No LLM service configured. Cannot start CLI session.")
+        return
+
+    logger.info(f"Using LLM service: {llm_service_name}")
+
+    messages = []
+    # You can add a system prompt here if you want
+    # messages.append({"role": "system", "content": "You are a helpful assistant."})
+
+    while True:
+        try:
+            prompt = await asyncio.to_thread(input, "You: ")
+            if prompt.lower() in ["exit", "quit"]:
+                logger.info("Exiting interactive session.")
+                break
+
+            messages.append({"role": "user", "content": prompt})
+
+            response = await client.run_mcp_interaction(
+                messages=messages,
+                llm_service_name=llm_service_name,
+                agent_key="cli_agent"
+            )
+
+            if response and "messages" in response:
+                # The agent's response is expected to be the last message
+                ai_message = response["messages"][-1]
+                ai_content = ai_message.content if hasattr(ai_message, 'content') else str(ai_message)
+
+                print(f"Agent: {ai_content}")
+
+                # Add the AI's response to the history
+                messages.append({"role": "assistant", "content": ai_content})
+            else:
+                error_message = response.get("error", "An unknown error occurred.")
+                print(f"Agent: Sorry, I encountered an error: {error_message}")
+
+        except (KeyboardInterrupt, EOFError):
+            logger.info("\nExiting interactive session.")
+            break
+        except Exception as e:
+            logger.error(f"An error occurred during the chat session: {e}", exc_info=True)
+            print("Agent: An unexpected error occurred. Please try again.")
+
 async def main():
     """
     Main entry point for the CLI tool.
@@ -58,6 +112,11 @@ async def main():
         "--run-task-now",
         type=str,
         help="Name of a specific scheduled task to run immediately, ignoring its schedule."
+    )
+    parser.add_argument(
+        "--cli",
+        action="store_true",
+        help="Launch an interactive CLI session for conversation."
     )
 
     args = parser.parse_args()
@@ -101,7 +160,9 @@ async def main():
         logger.error("AgenticMaid configuration is missing after initialization. Cannot proceed.")
         return
 
-    if args.run_task_now:
+    if args.cli:
+        await start_cli_session(client)
+    elif args.run_task_now:
         task_name_to_run = args.run_task_now
         logger.info(f"Attempting to run specific task immediately: {task_name_to_run}")
         try:

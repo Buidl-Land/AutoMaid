@@ -38,67 +38,106 @@ AgenticMaid is a Python framework for building reactive, multi-agent systems. It
 
 ### 3. Configuration
 
-Configuration is handled by the `ConfigManager` and can be defined in `config.json` and supplemented with environment variables.
+AgenticMaid uses a layered configuration system that provides flexibility for development and production environments. The layers are loaded in the following order, with later layers overriding earlier ones:
 
-#### a. Environment Variables (`.env`)
+1.  **Default settings** hard-coded in the application.
+2.  **`config.json` file**: The primary configuration file for defining services, agents, and tasks.
+3.  **Environment variables**: For overriding specific settings, ideal for sensitive data and CI/CD environments.
 
-Create a `.env` file in the project root for sensitive data like API keys. These values can be referenced in `config.json` or used as fallbacks.
+---
 
-**Example `.env`:**
+#### a. Main Configuration (`config.json`)
+
+This is the central file for configuring your multi-agent system. It defines everything from AI model connections to scheduled tasks. For a complete, annotated example, please see the [`config.example.json`](./config.example.json) file.
+
+**Key Sections:**
+
+*   `ai_services`: Define connections to LLM providers (e.g., Google, OpenAI, Anthropic, Azure, local models).
+*   `mcp_servers`: Configure connections to one or more MCP servers to provide agents with tools.
+*   `memory_protocol`: Configure the long-term memory system for agents.
+*   `multi_agent_dispatch`: Enable and configure agent-to-agent delegation.
+*   `agents`: Pre-define agent configurations with specific models, system prompts, and descriptions.
+*   `scheduled_tasks`: Define tasks to be run on a cron schedule.
+*   `chat_services`: Configure endpoints for interactive chat with agents.
+*   `default_llm_service_name`: Specifies the default LLM service to use if not otherwise specified.
+
+---
+
+#### b. Environment Variable Overrides
+
+Any setting in `config.json` can be overridden using environment variables. This is the recommended way to handle API keys and other sensitive data, or to change settings in different environments without modifying the configuration file.
+
+**Format:**
+The environment variable name is constructed by prefixing the setting's path with `APP_`, converting to uppercase, and joining with underscores.
+
+`APP_{SECTION_NAME}_{KEY_NAME}`
+
+**Examples:**
+
+To override the `retrieval_k` setting in the `memory_protocol` section:
+```env
+APP_MEMORY_PROTOCOL_RETRIEVAL_K=10
+```
+
+To set an API key for a specific AI service named `google_gemini_default`:
+```env
+APP_AI_SERVICES_GOOGLE_GEMINI_DEFAULT_API_KEY="your-google-api-key"
+```
+
+You can place these variables in a `.env` file in the project root, and they will be loaded automatically.
+
+**Example `.env` file:**
 ```env
 # .env
 
 # --- AI Service API Keys ---
+# These will be picked up automatically by the respective providers if api_key is not set in config.json
 OPENAI_API_KEY="your_openai_api_key"
 ANTHROPIC_API_KEY="your_anthropic_api_key"
 GOOGLE_API_KEY="your_google_api_key"
 
-# --- Azure OpenAI ---
-# AZURE_OPENAI_API_KEY="your_azure_key"
-# AZURE_OPENAI_ENDPOINT="your_azure_endpoint"
+# --- Specific Overrides ---
+# This overrides the 'enabled' key in the 'memory_protocol' section of config.json
+APP_MEMORY_PROTOCOL_ENABLED="true"
 
-# --- Memory Protocol Overrides (Optional) ---
-# Override settings in config.json
-# APP_MEMORY_PROTOCOL_ENABLED="true"
-# APP_MEMORY_PROTOCOL_PROVIDER="openai"
-# APP_MEMORY_PROTOCOL_API_KEY="your_openai_api_key_for_embeddings"
+# This overrides the embedding model name
+APP_MEMORY_PROTOCOL_EMBEDDING_MODEL_NAME="text-embedding-3-large"
 ```
 
-#### b. Main Configuration (`config.json`)
+---
 
-Create a `config.json` file to define AI services, MCP servers, agents, and features like the Memory Protocol. See [`config.example.json`](./config.example.json) for a comprehensive example.
+#### c. Command-Line Arguments
 
-**Example `config.json` Snippet:**
-```json
-{
-  "ai_services": {
-    "google_gemini_default": {
-      "provider": "Google",
-      "model": "gemini-2.5-pro"
-    }
-  },
-  "mcp_servers": {
-    "local_mcp_server": {
-      "adapter_type": "fastapi",
-      "base_url": "http://localhost:8001/mcp/v1",
-      "name": "Local FastAPI MCP Server"
-    }
-  },
-  "memory_protocol": {
-    "enabled": true,
-    "retrieval_k": 5,
-    "database": {
-      "mode": "persistent",
-      "path": "./.rooroo/memory_db"
-    },
-    "embedding": {
-      "provider": "openai",
-      "model_name": "text-embedding-3-small"
-    }
-  },
-  "default_llm_service_name": "google_gemini_default"
-}
+The CLI tool (`cli.py`) provides arguments for running tasks and interacting with the system.
+
+```bash
+python -m cli --config-file path/to/config.json [OPTIONS]
 ```
+
+**Available Arguments:**
+
+| Argument | Description | Required |
+| :--- | :--- | :--- |
+| `--config-file <path>` | Specifies the path to the JSON configuration file. | **Yes** |
+| `--run-task-now <name>` | Runs a specific scheduled task by its name immediately, ignoring its cron schedule. | No |
+| `--cli` | Launches an interactive command-line chat session with the default agent. | No |
+
+**Usage Examples:**
+
+*   **Run all enabled scheduled tasks:**
+    ```bash
+    python -m cli --config-file config.json
+    ```
+
+*   **Run a single, specific task:**
+    ```bash
+    python -m cli --config-file config.json --run-task-now "Hourly Summary Bot"
+    ```
+
+*   **Start an interactive chat:**
+    ```bash
+    python -m cli --config-file config.json --cli
+    ```
 
 ## Core Concepts
 
