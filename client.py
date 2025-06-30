@@ -162,6 +162,9 @@ class AgenticMaid:
         self.mcp_tools = []
         self.mcp_sessions = {}  # Stores persistent sessions
         self.agents = {}  # Stores agents
+        self.agent_creation_locks = {} # Locks for creating agents
+        self.llm_semaphores = {} # Semaphores to limit concurrent requests to LLMs
+        self.background_tasks = {} # Stores background tasks from concurrent dispatches
         self.scheduler = schedule
         self.scheduler_thread = None
         self.scheduler_stop_event = None
@@ -493,6 +496,10 @@ class AgenticMaid:
         self.ai_services = ai_config
         for service_name, service_details in self.ai_services.items():
             logger.info(f"AI Service '{service_name}' configured with model: {service_details.get('model')}")
+            if "max_concurrent_requests" in service_details:
+                max_requests = service_details["max_concurrent_requests"]
+                self.llm_semaphores[service_name] = asyncio.Semaphore(max_requests)
+                logger.info(f"Semaphore configured for '{service_name}' with a limit of {max_requests} concurrent requests.")
 
     def _schedule_tasks(self):
         """Schedules tasks based on cron expressions in the configuration."""
@@ -703,12 +710,20 @@ class AgenticMaid:
         if not enabled_tasks:
             return [{"status": "skipped", "message": "No enabled scheduled tasks found."}]
 
-        logger.info(f"Manually triggering all {len(enabled_tasks)} enabled scheduled tasks.")
-        for task_details in enabled_tasks:
-            result = await self._execute_task(task_details)
-            results.append(result)
+        logger.info(f"Concurrently triggering all {len(enabled_tasks)} enabled scheduled tasks.")
+        tasks_to_run = [self._execute_task(task_details) for task_details in enabled_tasks]
+        results = await asyncio.gather(*tasks_to_run, return_exceptions=True)
 
-        return results
+        # Process results to handle exceptions
+        processed_results = []
+        for result in results:
+            if isinstance(result, Exception):
+                logger.error(f"A concurrent task failed: {result}", exc_info=result)
+                processed_results.append({"status": "error", "error": str(result)})
+            else:
+                processed_results.append(result)
+
+        return processed_results
 
     async def _dispatch_agent(self, calling_agent_id: str, target_agent_id: str, prompt: str, mode: str) -> dict:
         """
@@ -747,8 +762,22 @@ class AgenticMaid:
         if not llm_service_name:
              return {"status": "error", "message": f"No 'model_config_name' for target agent '{target_agent_id}'."}
 
-        response = await self.run_mcp_interaction(messages, llm_service_name, agent_key=target_agent_id, calling_agent_id=target_agent_id, agent_config=agent_config)
-        return {"status": "success", "response": response}
+        if mode == 'concurrent':
+            logger.info(f"Dispatching agent '{target_agent_id}' in concurrent mode.")
+            # For concurrent mode, we start the task but don't wait for it.
+            task = asyncio.create_task(self.run_mcp_interaction(messages, llm_service_name, agent_key=target_agent_id, calling_agent_id=target_agent_id, agent_config=agent_config))
+
+            task_id = f"concurrent_task_{len(self.background_tasks) + 1}"
+            self.background_tasks[task_id] = task
+
+            # Add a callback to remove the task from the dict when it's done
+            task.add_done_callback(lambda t: self.background_tasks.pop(task_id, None))
+
+            return {"status": "submitted", "task_id": task_id, "message": f"Agent '{target_agent_id}' invoked concurrently."}
+        else: # synchronous mode
+            logger.info(f"Dispatching agent '{target_agent_id}' in synchronous mode.")
+            response = await self.run_mcp_interaction(messages, llm_service_name, agent_key=target_agent_id, calling_agent_id=target_agent_id, agent_config=agent_config)
+            return {"status": "success", "response": response}
 
     async def run_mcp_interaction(self, messages: list, llm_service_name: str, agent_key: str = "default_agent", calling_agent_id: str = None, agent_config: dict = None):
         """
@@ -763,6 +792,13 @@ class AgenticMaid:
             return {"error": f"Failed to get or create agent '{agent_key}' with LLM '{llm_service_name}'."}
 
         logger.info(f"Invoking agent '{agent_key}' (LLM: {llm_service_name}) with messages: {messages}")
+
+        semaphore = self.llm_semaphores.get(llm_service_name)
+        if semaphore:
+            logger.debug(f"Acquiring semaphore for '{llm_service_name}'...")
+            await semaphore.acquire()
+            logger.debug(f"Semaphore acquired for '{llm_service_name}'.")
+
         try:
             response = await agent.ainvoke({"messages": messages})
             logger.info(f"Agent '{agent_key}' successfully invoked. Raw response: {response}")
@@ -770,16 +806,29 @@ class AgenticMaid:
         except Exception as e:
             logger.error(f"Error during agent invocation for '{agent_key}': {e}", exc_info=True)
             return {"error": str(e)}
+        finally:
+            if semaphore:
+                semaphore.release()
+                logger.debug(f"Semaphore released for '{llm_service_name}'.")
 
     async def _get_or_create_agent(self, agent_key: str, llm_service_name: str, calling_agent_id: str = None, agent_config: dict = None):
         """
-        Retrieves an existing agent or creates a new one.
+        Retrieves an existing agent or creates a new one, with locking to prevent race conditions.
         """
-        if agent_key in self.agents:
-            logger.info(f"Returning existing agent: {agent_key}")
-            return self.agents[agent_key]
+        # Get or create a lock for the specific agent key
+        if agent_key not in self.agent_creation_locks:
+            self.agent_creation_locks[agent_key] = asyncio.Lock()
 
-        llm_config = self.ai_services.get(llm_service_name)
+        lock = self.agent_creation_locks[agent_key]
+
+        async with lock:
+            if agent_key in self.agents:
+                logger.info(f"Returning existing agent: {agent_key}")
+                return self.agents[agent_key]
+
+            logger.info(f"Creating new agent '{agent_key}' under lock.")
+            # The rest of the creation logic is now protected by the lock
+            llm_config = self.ai_services.get(llm_service_name)
         if not llm_config:
             logger.error(f"LLM service configuration '{llm_service_name}' not found.")
             return None

@@ -13,5 +13,7 @@ python-dotenv
 langchain-core
 langchain-mcp-adapters
 langgraph
-langchain-google-vertexai
-croniter
+
+# Vector Store & Embeddings
+chromadb
+openai

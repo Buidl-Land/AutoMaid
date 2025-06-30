@@ -14,6 +14,7 @@ AgenticMaid is a Python framework for building reactive, multi-agent systems. It
 *   **Scheduled & Ad-Hoc Tasks**: Run agents on a cron-like schedule or trigger them on-demand via CLI or API.
 *   **Chat Service Integration**: Easily expose agents through chat interfaces with support for streaming and system prompts.
 *   **Extensible AI Model Support**: Integrates with major LLM providers (OpenAI, Google, Anthropic, Azure) and local models.
+*   **Concurrency & Resource Management**: Execute scheduled tasks and dispatch agents concurrently, with built-in request limiting to prevent overloading AI services.
 
 ## Getting Started
 
@@ -209,6 +210,50 @@ Expose agents via chat interfaces defined in the `chat_services` config section.
   }
 ]
 ```
+
+### 4. Concurrency & Resource Management
+
+AgenticMaid includes features to manage concurrent operations and protect resources from being overloaded.
+
+#### a. Concurrent Task Execution
+
+You can run all enabled scheduled tasks concurrently instead of sequentially.
+
+**Programmatic Execution:**
+```python
+# In your application code
+await client.async_run_all_enabled_scheduled_tasks()
+```
+
+**CLI Execution:**
+The CLI now runs all tasks concurrently by default.
+```bash
+python -m agentic_maid.cli --config-file path/to/your/config.json
+```
+
+#### b. Concurrent Agent Dispatch
+
+When using the `dispatch` tool, you can invoke an agent in `concurrent` mode. This is a "fire-and-forget" operation that immediately returns a task ID, allowing the calling agent to continue its work without waiting for the result.
+
+> **Prompt:** "Please use the dispatch tool to ask the 'report_agent' to generate a report, but run it in concurrent mode."
+
+The agent will execute: `dispatch(agent_id='report_agent', prompt='Generate a report', mode='concurrent')`.
+
+#### c. LLM Request Throttling
+
+To prevent rate-limiting errors from AI providers, you can limit the number of concurrent requests sent to any LLM service. Add the `max_concurrent_requests` property to any service in the `ai_services` section of your `config.json`.
+
+**Example `config.json` with Request Limiting:**
+```json
+"ai_services": {
+  "google_gemini_default": {
+    "provider": "Google",
+    "model": "gemini-2.5-pro",
+    "max_concurrent_requests": 5
+  }
+}
+```
+If this property is omitted, no limit is applied to that service.
 
 ## Usage
 
