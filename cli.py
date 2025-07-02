@@ -3,9 +3,9 @@ import asyncio
 import json
 import os
 import logging
+import signal
+import sys
 
-# Adjust import path to correctly find the AgenticMaid module
-# Assume cli.py and client.py are in the same AgenticMaid directory
 from client import AgenticMaid
 from conversation_logger import init_conversation_logger
 
@@ -22,16 +22,22 @@ root_logger.setLevel(logging.INFO) # Set root logger level
 for handler in root_logger.handlers[:]:
     root_logger.removeHandler(handler)
 
-# Console Handler
-console_handler = logging.StreamHandler()
+# This is the most reliable way to set the encoding for stdout on Windows
+try:
+    sys.stdout.reconfigure(encoding='utf-8')
+except TypeError:
+    pass # Fails in some environments, but we have a fallback.
+
+# Console Handler with UTF-8 encoding support
+console_handler = logging.StreamHandler(sys.stdout)
 console_handler.setLevel(logging.INFO)
 console_formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 console_handler.setFormatter(console_formatter)
 root_logger.addHandler(console_handler)
 
-# File Handler for CLI logs
+# File Handler for CLI logs with UTF-8 encoding
 log_file_path = os.path.join(LOG_DIR, "cli.log")
-file_handler = logging.FileHandler(log_file_path)
+file_handler = logging.FileHandler(log_file_path, encoding='utf-8')
 file_handler.setLevel(logging.INFO) # Or logging.DEBUG for more verbose file logs
 file_formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 file_handler.setFormatter(file_formatter)
@@ -118,8 +124,21 @@ async def main():
         action="store_true",
         help="Launch an interactive CLI session for conversation."
     )
+    parser.add_argument(
+        "--debug",
+        action="store_true",
+        help="Enable debug logging for detailed network requests."
+    )
 
     args = parser.parse_args()
+
+    # If debug mode is enabled, set the root logger level to DEBUG
+    if args.debug:
+        root_logger.setLevel(logging.DEBUG)
+        for handler in root_logger.handlers:
+            handler.setLevel(logging.DEBUG)
+        logger.info("Debug mode enabled. Log level set to DEBUG.")
+
     config_file_path = args.config_file
 
     logger.info(f"Attempting to load configuration from: {config_file_path}")
@@ -131,16 +150,48 @@ async def main():
     # Initialize conversation logger. This will now use the centralized config manager.
     init_conversation_logger(log_dir="logs", enable_file_logging=True)
 
-    # Load config for AgenticMaid instantiation
+    # Global variable to store client for cleanup
+    client = None
+
+    # Define signal handler for graceful shutdown
+    def signal_handler(signum, frame):
+        logger.info(f"Received signal {signum}, initiating graceful shutdown...")
+        if client:
+            try:
+                # Run cleanup in the event loop
+                loop = asyncio.get_event_loop()
+                if loop.is_running():
+                    loop.create_task(client.cleanup_mcp_sessions())
+                else:
+                    asyncio.run(client.cleanup_mcp_sessions())
+            except Exception as e:
+                logger.error(f"Error during cleanup: {e}")
+        sys.exit(0)
+
+    # Register signal handlers
+    signal.signal(signal.SIGINT, signal_handler)
+    signal.signal(signal.SIGTERM, signal_handler)
+
+    # Load the configuration early to set environment variables if needed
     try:
-        with open(config_file_path, 'r') as f:
+        with open(config_file_path, 'r', encoding='utf-8') as f:
             config_data = json.load(f)
     except Exception as e:
-        logger.error(f"Failed to load config file {config_file_path}: {e}", exc_info=True)
+        logger.error(f"Failed to load or parse config file {config_file_path}: {e}", exc_info=True)
         return
 
+    # Set OpenAI API key from config to environment variable for global access
+    # This helps ensure libraries like LangChain can find it reliably.
+    if 'ai_services' in config_data:
+        for service_name, service_details in config_data['ai_services'].items():
+            if 'api_key' in service_details and service_details['api_key']:
+                os.environ["OPENAI_API_KEY"] = service_details['api_key']
+                logger.info(f"Set OPENAI_API_KEY environment variable from service '{service_name}'.")
+                break # Exit after setting the first key
+
     try:
-        client = AgenticMaid(config_path_or_dict=config_data)
+        # Pass the config file path and debug flag to AgenticMaid
+        client = AgenticMaid(config_path_or_dict=config_file_path, debug=args.debug)
     except Exception as e:
         logger.error(f"Failed to instantiate AgenticMaid with config '{config_file_path}': {e}", exc_info=True)
         return
@@ -272,9 +323,26 @@ if __name__ == "__main__":
     try:
         loop.run_until_complete(main())
     except KeyboardInterrupt:
-        logger.info("AgenticMaid CLI interrupted by user")
+        logger.info("AgenticMaid CLI interrupted by user (Ctrl+C)")
+        # Try to perform graceful cleanup
+        try:
+            # Note: We can't access the client variable here since it's in main()
+            # The signal handler should have already handled cleanup
+            logger.info("Performing final cleanup...")
+        except Exception as cleanup_error:
+            logger.debug(f"Cleanup error during interrupt: {cleanup_error}")
     except Exception as e:
         logger.error(f"AgenticMaid CLI encountered an error: {e}")
     finally:
-        loop.close()
-        logger.info("AgenticMaid CLI finished.")
+        try:
+            # Cancel all pending tasks
+            pending = asyncio.all_tasks(loop)
+            for task in pending:
+                task.cancel()
+            if pending:
+                loop.run_until_complete(asyncio.gather(*pending, return_exceptions=True))
+        except Exception as e:
+            logger.debug(f"Error cancelling tasks: {e}")
+        finally:
+            loop.close()
+            logger.info("AgenticMaid CLI finished.")

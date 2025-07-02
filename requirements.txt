@@ -5,6 +5,7 @@ uvicorn[standard]
 
 # Scheduling
 schedule
+croniter
 
 # Configuration
 python-dotenv

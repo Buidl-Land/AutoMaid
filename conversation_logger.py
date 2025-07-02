@@ -8,6 +8,8 @@ import uuid
 from memory_protocol import MemoryProtocol
 from config_manager import config_manager
 
+logger = logging.getLogger(__name__)
+
 class ConversationLogger:
     """
     Conversation and Log Manager
@@ -29,9 +31,15 @@ class ConversationLogger:
         self.lock = threading.Lock()
 
         self.memory_protocol: Optional[MemoryProtocol] = None
-        memory_config = config_manager.get_section("memory_protocol")
-        if memory_config and memory_config.get("enabled", False):
-            self.memory_protocol = MemoryProtocol(memory_config)
+        try:
+            memory_config = config_manager.get_section("memory_protocol")
+            if memory_config and memory_config.get("enabled", False):
+                self.memory_protocol = MemoryProtocol(memory_config)
+        except Exception as e:
+            # If memory protocol initialization fails, log the error but continue
+            # This allows the conversation logger to work even if memory protocol is misconfigured
+            logger.warning(f"Failed to initialize memory protocol: {e}")
+            self.memory_protocol = None
 
         # Create log directory
         if not os.path.exists(self.log_dir):
