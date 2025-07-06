@@ -87,24 +87,37 @@ class ConversationLogger:
             self.conversation_history.append(conversation_entry)
             logging.info(f"Task started: {task_name}")
 
-    def log_ai_response(self, task_name: str, response: str, status: str = "success", prompt: Optional[str] = None):
+    def log_ai_response(self, task_name: str, response: Any, status: str = "success", prompt: Optional[str] = None):
         """Log AI response with full content and ingest to memory."""
         with self.lock:
             timestamp = datetime.now()
+
+            response_content = ""
+            response_details = {}
+
+            if hasattr(response, 'content'):
+                response_content = response.content
+            else:
+                response_content = str(response)
+
+            if hasattr(response, 'response_metadata'):
+                response_details = response.response_metadata
+
             conversation_entry = {
                 "timestamp": timestamp.isoformat(),
                 "type": "ai_response",
                 "task_name": task_name,
                 "status": status,
-                "response": response,  # Save full response
-                "response_length": len(response)
+                "response": response_content,
+                "response_length": len(response_content),
+                "details": response_details
             }
             self.conversation_history.append(conversation_entry)
             logging.info(f"Task '{task_name}' completed with status: {status}")
 
             # Ingest into memory if successful and enabled
             if status == "success" and self.memory_protocol:
-                self._ingest_conversation_summary(task_name, prompt, response, timestamp)
+                self._ingest_conversation_summary(task_name, prompt, response_content, timestamp)
 
     def _ingest_conversation_summary(self, task_name: str, prompt: str, response: str, timestamp: datetime):
         """Summarizes and ingests the conversation into the memory protocol."""
@@ -150,7 +163,7 @@ class ConversationLogger:
             self.conversation_history.append(conversation_entry)
             logging.info(f"System event: {event_type}")
 
-    def log_tool_call(self, task_name: str, tool_name: str, tool_args: Dict[str, Any], tool_result: Any, status: str = "success"):
+    def log_tool_call(self, task_name: str, tool_name: str, tool_args: Dict[str, Any], tool_result: Any, status: str = "success", details: Optional[Dict[str, Any]] = None):
         """Log tool call with complete details"""
         with self.lock:
             conversation_entry = {
@@ -161,7 +174,8 @@ class ConversationLogger:
                 "tool_args": tool_args,
                 "tool_result": str(tool_result) if tool_result is not None else None,
                 "status": status,
-                "result_length": len(str(tool_result)) if tool_result is not None else 0
+                "result_length": len(str(tool_result)) if tool_result is not None else 0,
+                "details": details or {}
             }
             self.conversation_history.append(conversation_entry)
             logging.info(f"Tool call: {tool_name} for task '{task_name}' - Status: {status}")
@@ -240,6 +254,8 @@ class ConversationLogger:
                     content += f"**Status**: {conv['status']}\n\n"
                     content += f"**Response Content**:\n```\n{conv['response']}\n```\n\n"
                     content += f"*Response length: {conv.get('response_length', len(conv['response']))} characters*\n\n"
+                    if conv.get("details"):
+                        content += f"**Details**:\n```json\n{json.dumps(conv['details'], ensure_ascii=False, indent=2)}\n```\n\n"
 
                 elif conv["type"] == "error":
                     content += f"### {i}. Error - {conv['task_name']} ({timestamp}) ❌\n\n"
@@ -255,6 +271,8 @@ class ConversationLogger:
                     if conv.get('tool_result'):
                         content += f"**Result**: \n```\n{conv['tool_result']}\n```\n\n"
                     content += f"*Result length: {conv.get('result_length', 0)} characters*\n\n"
+                    if conv.get("details"):
+                        content += f"**Details**:\n```json\n{json.dumps(conv['details'], ensure_ascii=False, indent=2)}\n```\n\n"
 
                 elif conv["type"] == "system_event":
                     content += f"### {i}. System Event - {conv['event_type']} ({timestamp}) ℹ️\n\n"
@@ -277,9 +295,6 @@ class ConversationLogger:
         """Clean up session and save all records"""
         logging.info("Saving session records...")
 
-        # Save conversation history
-        json_file = self.save_conversation_history()
-
         # Save session summary
         md_file = self.save_session_summary()
 
@@ -287,14 +302,12 @@ class ConversationLogger:
         files_info = self.get_log_files_info()
 
         print(f"\n=== Session Records Saved ===")
-        print(f"Conversation History (JSON): {json_file}")
         print(f"Session Summary (Markdown): {md_file}")
         if 'log_file' in files_info:
             print(f"System Log: {files_info['log_file']}")
         print(f"Log Directory: {os.path.abspath(self.log_dir)}")
 
         return {
-            'conversation_history': json_file,
             'session_summary': md_file,
             **files_info
         }

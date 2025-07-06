@@ -1,6 +1,4 @@
 import chromadb
-import openai
-import json
 import os
 from typing import List, Dict, Any
 from chromadb.utils import embedding_functions
@@ -36,7 +34,7 @@ class MemoryProtocol:
         mode = db_config.get("mode", "persistent")
 
         if mode == "persistent":
-            path = db_config.get("path", "./.rooroo/memory_db")
+            path = db_config.get("path", "./memory_db")
             os.makedirs(path, exist_ok=True)
             return chromadb.PersistentClient(path=path)
         elif mode == "http":

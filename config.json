@@ -15,6 +15,10 @@
       ]
     }
   },
+  "react": {
+    "_comment": "Settings for the ReAct agent execution loop.",
+    "max_iterations": 10
+  },
   "model": {
     "_comment": "Optional global model configuration. These can be overridden by specific service configurations or .env file settings.",
     "default_provider": "Google",

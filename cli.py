@@ -283,6 +283,9 @@ async def main():
     except Exception as e:
         logger.warning(f"Error saving conversation records: {e}")
 
+    # Final message to indicate completion
+    logger.info("AgenticMaid CLI finished.")
+
 def custom_exception_handler(loop, context):
     """Custom exception handler to suppress known langchain_mcp_adapters cleanup errors"""
     exception = context.get('exception')
@@ -345,4 +348,3 @@ if __name__ == "__main__":
             logger.debug(f"Error cancelling tasks: {e}")
         finally:
             loop.close()
-            logger.info("AgenticMaid CLI finished.")

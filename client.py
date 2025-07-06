@@ -87,13 +87,17 @@ class AgenticMaid:
 
         results = []
         for tool_block in matches:
+            tool_name = "unknown"
             try:
                 # Extract tool name and arguments from the XML block
                 tool_name_match = re.search(r'<name>(.*?)</name>', tool_block, re.DOTALL)
                 arguments_match = re.search(r'<arguments>(.*?)</arguments>', tool_block, re.DOTALL)
 
                 if not tool_name_match:
-                    results.append("Tool call error: missing <name> tag in tool_use block")
+                    error_msg = "Tool call error: missing <name> tag in tool_use block"
+                    results.append(error_msg)
+                    if self.conversation_logger:
+                        self.conversation_logger.log_tool_call(task_name, "unknown", {}, error_msg, "error")
                     continue
 
                 tool_name = tool_name_match.group(1).strip()
@@ -106,74 +110,81 @@ class AgenticMaid:
                             # The arguments are a JSON string
                             params = json.loads(params_str)
                         except json.JSONDecodeError:
-                            results.append(f"Tool '{tool_name}' error: Invalid JSON in <arguments>: {params_str}")
+                            error_msg = f"Tool '{tool_name}' error: Invalid JSON in <arguments>: {params_str}"
+                            results.append(error_msg)
+                            if self.conversation_logger:
+                                self.conversation_logger.log_tool_call(task_name, tool_name, {}, error_msg, "error")
                             continue
 
                 # Find the tool
                 tool = None
                 for t in available_tools:
-                    # Try exact match first
                     if t.name == tool_name:
-                        tool = t
-                        break
-                    # Try with underscores replaced by hyphens
-                    elif t.name.replace('_', '-') == tool_name.replace('_', '-'):
-                        tool = t
-                        break
-                    # Try with hyphens replaced by underscores
-                    elif t.name.replace('-', '_') == tool_name.replace('-', '_'):
-                        tool = t
-                        break
-                    # Try case insensitive match
-                    elif t.name.lower() == tool_name.lower():
-                        tool = t
-                        break
-                    # Try removing special characters for comparison
-                    elif t.name.replace('-', '').replace('_', '').replace('.', '') == tool_name.replace('-', '').replace('_', '').replace('.', ''):
                         tool = t
                         break
 
                 if not tool:
-                    results.append(f"Tool '{tool_name}' not found")
+                    # Fallback matching logic
+                    for t in available_tools:
+                        if t.name.replace('_', '-') == tool_name.replace('_', '-') or \
+                           t.name.replace('-', '_') == tool_name.replace('-', '_') or \
+                           t.name.lower() == tool_name.lower() or \
+                           t.name.replace('-', '').replace('_', '').replace('.', '') == tool_name.replace('-', '').replace('_', '').replace('.', ''):
+                            tool = t
+                            break
+
+                if not tool:
+                    error_msg = f"Tool '{tool_name}' not found"
+                    results.append(error_msg)
+                    if self.conversation_logger:
+                        self.conversation_logger.log_tool_call(task_name, tool_name, params, error_msg, "error")
                     continue
 
-                # The model is now expected to provide the correct parameters in the JSON arguments.
-                # No client-side mapping is needed.
                 execution_params = params
-
-                # Execute the tool
                 logger.info(f"Executing tool '{tool_name}' with params: {execution_params}")
 
                 result = None
-                # Handle different tool calling conventions
+                status = "error"
+                details = {}
                 try:
-                    # Try func method first (for StructuredTool)
+                    # Try different invocation methods
                     if hasattr(tool, 'func') and callable(getattr(tool, 'func')):
                         if inspect.iscoroutinefunction(tool.func):
                             result = await tool.func(**execution_params)
                         else:
                             result = tool.func(**execution_params)
-                    # Try arun method
                     elif hasattr(tool, 'arun') and callable(getattr(tool, 'arun')):
                         result = await tool.arun(execution_params)
-                    # Try run method
                     elif hasattr(tool, 'run') and callable(getattr(tool, 'run')):
                         result = tool.run(execution_params)
-                    # Try invoke/ainvoke methods
                     elif hasattr(tool, 'ainvoke') and callable(getattr(tool, 'ainvoke')):
                         result = await tool.ainvoke(execution_params)
                     elif hasattr(tool, 'invoke') and callable(getattr(tool, 'invoke')):
-                        result = await tool.invoke(execution_params)
+                        result = tool.invoke(execution_params)
                     else:
-                        result = "Tool execution method not found"
+                        raise NotImplementedError("Tool execution method not found")
+
+                    status = "success"
+                    if hasattr(result, 'response_metadata'):
+                        details = result.response_metadata
+                    elif isinstance(result, dict) and 'response_metadata' in result:
+                        details = result.pop('response_metadata')
+
                 except Exception as execution_error:
                     result = f"Tool execution failed: {execution_error}"
+                    logger.error(f"Error executing tool '{tool_name}': {execution_error}", exc_info=True)
+
+                if self.conversation_logger:
+                    self.conversation_logger.log_tool_call(task_name, tool_name, execution_params, result, status, details)
 
                 results.append(f"Tool '{tool_name}' result: {result}")
 
             except Exception as e:
-                logger.error(f"Error executing tool '{tool_name}': {e}")
-                results.append(f"Tool '{tool_name}' error: {str(e)}")
+                logger.error(f"Error processing tool block for tool '{tool_name}': {e}", exc_info=True)
+                error_msg = f"Tool '{tool_name}' error: {str(e)}"
+                results.append(error_msg)
+                if self.conversation_logger:
+                    self.conversation_logger.log_tool_call(task_name, tool_name, {}, error_msg, "error")
 
         return results
 
@@ -533,8 +544,19 @@ You only have access to these tools:
                         server_tools = await load_mcp_tools(session)
 
                         # Store tools without wrapping to avoid Pydantic issues
-                        # We'll wrap them later when creating the agent
-                        self.mcp_tools.extend(server_tools)
+                        # Wrap tools with logging as they are loaded
+                        if self.conversation_logger:
+                            wrapped_tools = []
+                            for t in server_tools:
+                                try:
+                                    wrapped_tools.append(self._wrap_tool_with_logging(t, task_name="mcp_tool_init"))
+                                except Exception as e:
+                                    logger.debug(f"Could not wrap tool {t.name} with logging: {e}")
+                                    wrapped_tools.append(t)
+                            self.mcp_tools.extend(wrapped_tools)
+                        else:
+                            self.mcp_tools.extend(server_tools)
+
                         logger.info(f"Loaded {len(server_tools)} tools from {server_name}")
 
                     except Exception as e:
@@ -674,7 +696,7 @@ You only have access to these tools:
                 result_content = final_response["output"]
                 logger.info(f"Task '{task_name}' completed successfully.")
                 if self.conversation_logger:
-                    self.conversation_logger.log_ai_response(task_name, result_content, "success")
+                    self.conversation_logger.log_ai_response(task_name, final_response, "success")
                 return {"status": "success", "task_name": task_name, "response": result_content}
             else:
                 error_message = final_response.get("error", "An unknown error occurred.")
@@ -814,7 +836,9 @@ You only have access to these tools:
             messages[-1] # The user's actual prompt
         ]
 
-        max_iterations = 10
+        react_config = self.config.get("react", {})
+        max_iterations = react_config.get("max_iterations", 10)
+
         for i in range(max_iterations):
             logger.info(f"ReAct Iteration {i+1}/{max_iterations} for agent '{agent_key}'")
 
@@ -902,17 +926,7 @@ You only have access to these tools:
                 agent_tools.append(memory_tool)
             logger.info(f"Added {len(memory_tool_names)} simple memory tools to agent '{agent_key}'.")
 
-        # Wrap MCP tools with logging (do this here to avoid Pydantic issues during loading)
-        if self.conversation_logger and agent_tools:
-            wrapped_tools = []
-            for tool in agent_tools:
-                try:
-                    wrapped_tool = self._wrap_tool_with_logging(tool, task_name=agent_key)
-                    wrapped_tools.append(wrapped_tool)
-                except Exception as e:
-                    logger.debug(f"Could not wrap tool {tool.name} with logging (this is normal for some tool types): {e}")
-                    wrapped_tools.append(tool)  # Use original tool if wrapping fails
-            agent_tools = wrapped_tools
+        # Tools are already wrapped at load time, so no need to re-wrap here.
 
         dispatch_config = self.config.get("multi_agent_dispatch", {})
         allowed_invocations = dispatch_config.get("allowed_invocations", {})
