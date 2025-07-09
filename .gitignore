@@ -129,4 +129,7 @@ dmypy.json
 # Log files
 logs/
 
+# Examples directory (contains demo files, tests, and example configurations)
+examples/
+
 .rooroo/

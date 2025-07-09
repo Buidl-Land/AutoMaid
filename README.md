@@ -16,6 +16,46 @@ AgenticMaid is a Python framework for building reactive, multi-agent systems. It
 *   **Extensible AI Model Support**: Integrates with major LLM providers (OpenAI, Google, Anthropic, Azure) and local models.
 *   **Concurrency & Resource Management**: Execute scheduled tasks and dispatch agents concurrently, with built-in request limiting to prevent overloading AI services.
 
+## Modular Architecture
+
+AgenticMaid is designed as a modular ecosystem with independently installable packages:
+
+```
+AgenticMaid Ecosystem
+├── agenticmaid-core          # Core framework and agent system
+├── agenticmaid-clients       # Messaging clients (Telegram, Discord, etc.)
+├── agenticmaid-triggers      # Event triggers (Solana, webhooks, etc.)
+└── agenticmaid-legacy        # Backward compatibility and migration tools
+```
+
+### Package Overview
+
+| Package | Description | Installation |
+|---------|-------------|--------------|
+| **agenticmaid-core** | Core framework with agent system, memory protocol, and MCP integration | `pip install agenticmaid-core` |
+| **agenticmaid-clients** | Messaging clients for Telegram, Discord, Slack, and webhooks | `pip install agenticmaid-clients[telegram]` |
+| **agenticmaid-triggers** | Event triggers for Solana monitoring, file watching, and webhooks | `pip install agenticmaid-triggers[solana]` |
+| **agenticmaid-legacy** | Backward compatibility and migration tools for older versions | `pip install agenticmaid-legacy` |
+
+### Installation Options
+
+```bash
+# Install core framework only
+pip install agenticmaid-core
+
+# Install with specific client support
+pip install agenticmaid-core agenticmaid-clients[telegram]
+
+# Install with trigger support
+pip install agenticmaid-core agenticmaid-triggers[solana]
+
+# Install everything
+pip install agenticmaid-core agenticmaid-clients[all] agenticmaid-triggers[all]
+
+# Legacy compatibility
+pip install agenticmaid-legacy
+```
+
 ## Getting Started
 
 ### 1. Prerequisites
@@ -24,16 +64,52 @@ AgenticMaid is a Python framework for building reactive, multi-agent systems. It
 
 ### 2. Installation
 
+#### Option A: Install from PyPI (Recommended)
+
+Install AgenticMaid as a Python package:
+
+```bash
+# Basic installation
+pip install agenticmaid
+
+# With optional dependencies for Telegram support
+pip install agenticmaid[telegram]
+
+# With optional dependencies for Solana support
+pip install agenticmaid[solana]
+
+# With all optional dependencies
+pip install agenticmaid[all]
+
+# Development installation with testing tools
+pip install agenticmaid[dev]
+```
+
+#### Option B: Install from Source
+
+1.  Clone the repository:
+    ```bash
+    git clone https://github.com/agenticmaid/agenticmaid.git
+    cd agenticmaid
+    ```
+
+2.  Install in development mode:
+    ```bash
+    pip install -e .
+    ```
+
+3.  Or install with optional dependencies:
+    ```bash
+    pip install -e .[all]
+    ```
+
+#### Option C: Manual Installation (Legacy)
+
 1.  Clone the repository or add `AgenticMaid` to your project.
-2.  Install the required dependencies. For a full installation including the API and CLI tools, use the provided `requirements.txt`.
+2.  Install the required dependencies:
 
     ```bash
     pip install -r requirements.txt
-    ```
-
-    Core dependencies include:
-    ```bash
-    pip install python-dotenv langchain-mcp-adapters langgraph schedule langchain-core langchain-openai langchain-anthropic fastapi pydantic "uvicorn[standard]" chromadb
     ```
 
 ### 3. Configuration
@@ -48,7 +124,7 @@ AgenticMaid uses a layered configuration system that provides flexibility for de
 
 #### a. Main Configuration (`config.json`)
 
-This is the central file for configuring your multi-agent system. It defines everything from AI model connections to scheduled tasks. For a complete, annotated example, please see the [`config.example.json`](./config.example.json) file.
+This is the central file for configuring your multi-agent system. It defines everything from AI model connections to scheduled tasks. Create your own `config.json` file based on the complete, annotated example at [`examples/configs/config.example.json`](./examples/configs/config.example.json).
 
 **Key Sections:**
 
@@ -296,20 +372,35 @@ If this property is omitted, no limit is applied to that service.
 
 ## Usage
 
-### 1. Programmatic Invocation
+### 1. Command Line Interface
 
-Instantiate and run `AgenticMaid` directly within your Python application. This is the most flexible method.
+After installation, you can use AgenticMaid directly from the command line:
 
-See the detailed, runnable example: [`examples/direct_invocation_example.py`](./examples/direct_invocation_example.py).
+```bash
+# Run with a configuration file
+agenticmaid --config-file config.json
 
-**Basic Workflow:**
+# Run a specific task
+agenticmaid --config-file config.json --run-task-now "task_name"
+
+# Start interactive CLI session
+agenticmaid --config-file config.json --cli
+
+# Start the API server
+agenticmaid-api
+```
+
+### 2. Programmatic Usage
+
+#### Basic Usage
+
 ```python
 import asyncio
-from agentic_maid.client import ClientAgenticMaid
+from agenticmaid import AgenticMaid
 
 async def main():
     # Load config from a dictionary or a JSON file path
-    client = ClientAgenticMaid(config_path_or_dict='config.json')
+    client = AgenticMaid(config_path_or_dict='config.json')
     await client.async_initialize()
 
     # Run an agent interaction
@@ -324,14 +415,51 @@ if __name__ == "__main__":
     asyncio.run(main())
 ```
 
-### 2. FastAPI Service
+#### Using Configuration Dictionary
+
+```python
+import asyncio
+from agenticmaid import AgenticMaid
+
+async def main():
+    config = {
+        "ai_services": {
+            "default_service": {
+                "provider": "Google",
+                "model": "gemini-2.5-pro",
+                "api_key": "your_api_key"
+            }
+        },
+        "default_llm_service_name": "default_service"
+    }
+
+    client = AgenticMaid(config)
+    await client.async_initialize()
+
+    response = await client.run_mcp_interaction(
+        messages=[{"role": "user", "content": "Hello!"}],
+        llm_service_name="default_service"
+    )
+    print(response)
+
+asyncio.run(main())
+```
+
+See the detailed, runnable example: [`examples/demos/direct_invocation_example.py`](./examples/demos/direct_invocation_example.py).
+
+### 3. FastAPI API Server
 
 The project includes a FastAPI application to expose `AgenticMaid` functionality over an HTTP API.
 
-**Run the Service:**
+**Run the API Server:**
 ```bash
-uvicorn agentic_maid.api:app --reload
+# Using the entry point (recommended)
+agenticmaid-api
+
+# Or manually
+uvicorn agenticmaid.api:app --reload
 ```
+
 The API will be available at `http://127.0.0.1:8000`.
 
 **Key Endpoints:**
@@ -339,16 +467,551 @@ The API will be available at `http://127.0.0.1:8000`.
 *   `POST /client/chat`: Process a message using a configured chat service.
 *   `POST /client/run_task/{task_name}`: Trigger a specific scheduled task by name.
 
-### 3. CLI Tool
+### 4. Legacy CLI Usage
 
-A command-line interface is provided to execute all enabled scheduled tasks from a configuration file.
+For backward compatibility, you can still run the CLI directly:
 
-**Run the CLI:**
 ```bash
-python -m agentic_maid.cli --config-file path/to/your/config.json
+python -m agenticmaid.cli --config-file path/to/your/config.json
 ```
 
 This command will load the config, initialize the client, and run all tasks where `"enabled": true`.
+
+## Advanced Usage
+
+### Client Implementation Guide
+
+AgenticMaid's messaging system provides a flexible architecture for integrating with various communication platforms. The system supports multiple client types including Telegram, Discord, webhooks, and custom implementations.
+
+#### Architecture Overview
+
+The messaging system consists of:
+
+* **Client Interface**: Abstract base for all messaging clients
+* **Message Types**: Standardized message format for cross-platform compatibility
+* **Event System**: Asynchronous event handling for real-time communication
+* **Configuration Management**: JSON-based configuration for easy deployment
+
+#### Creating Custom Clients
+
+AgenticMaid supports extensible client implementations through the messaging system. You can create custom clients for different communication platforms:
+
+```python
+from messaging_system.core.client_interface import ClientInterface
+from messaging_system.core.message import Message, MessageType
+import asyncio
+import logging
+
+class CustomClient(ClientInterface):
+    """Custom client implementation example."""
+
+    def __init__(self):
+        self.logger = logging.getLogger(__name__)
+        self.is_running = False
+        self.config = {}
+
+    async def initialize(self, config: dict) -> bool:
+        """Initialize the client with configuration."""
+        self.config = config
+        self.logger.info(f"Initializing {self.__class__.__name__} with config: {config}")
+
+        # Validate required configuration
+        required_fields = ['api_key', 'endpoint']  # Example required fields
+        for field in required_fields:
+            if field not in config:
+                self.logger.error(f"Missing required configuration field: {field}")
+                return False
+
+        # Initialize your client-specific resources here
+        # e.g., API connections, authentication, etc.
+
+        return True
+
+    async def send_message(self, message: Message) -> bool:
+        """Send a message through this client."""
+        try:
+            self.logger.info(f"Sending message: {message.content}")
+
+            # Implement your message sending logic here
+            # Example: API call to your messaging platform
+            # response = await self.api_client.send_message(
+            #     channel=message.channel_id,
+            #     content=message.content,
+            #     message_type=message.message_type
+            # )
+
+            return True
+        except Exception as e:
+            self.logger.error(f"Failed to send message: {e}")
+            return False
+
+    async def start_listening(self) -> None:
+        """Start listening for incoming messages."""
+        self.is_running = True
+        self.logger.info("Starting message listener")
+
+        while self.is_running:
+            try:
+                # Implement your message receiving logic here
+                # Example: Poll API for new messages
+                # messages = await self.api_client.get_new_messages()
+                #
+                # for msg in messages:
+                #     message = Message(
+                #         content=msg['content'],
+                #         sender_id=msg['sender_id'],
+                #         channel_id=msg['channel_id'],
+                #         message_type=MessageType.TEXT
+                #     )
+                #     await self.handle_incoming_message(message)
+
+                await asyncio.sleep(1)  # Polling interval
+
+            except Exception as e:
+                self.logger.error(f"Error in message listener: {e}")
+                await asyncio.sleep(5)  # Wait before retrying
+
+    async def stop_listening(self) -> None:
+        """Stop the message listener."""
+        self.is_running = False
+        self.logger.info("Stopped message listener")
+
+    async def handle_incoming_message(self, message: Message) -> None:
+        """Handle incoming messages and trigger AgenticMaid processing."""
+        # This method should be implemented to integrate with AgenticMaid
+        # Example: Forward message to AgenticMaid for processing
+        pass
+```
+
+#### Client Registration
+
+To register your custom client with the messaging system:
+
+```python
+from messaging_system.core.client_registry import ClientRegistry
+
+# Register your custom client
+ClientRegistry.register_client('custom', CustomClient)
+
+# Now you can use it in configuration
+config = {
+    "messaging_clients": {
+        "my_custom_client": {
+            "type": "custom",
+            "enabled": True,
+            "config": {
+                "api_key": "your_api_key",
+                "endpoint": "https://api.example.com"
+            }
+        }
+    }
+}
+```
+
+#### Telegram Client Configuration
+
+For Telegram integration, configure your client in the messaging system:
+
+```json
+{
+  "messaging_clients": {
+    "telegram_bot": {
+      "type": "telegram",
+      "enabled": true,
+      "config": {
+        "bot_token": "your_telegram_bot_token",
+        "allowed_users": [],
+        "polling_interval": 1.0,
+        "timeout": 30,
+        "max_retries": 3
+      }
+    }
+  }
+}
+```
+
+### Trigger System Setup
+
+The trigger system enables event-driven automation by monitoring external conditions and automatically triggering AgenticMaid responses. This system supports various trigger types including time-based, blockchain events, file system changes, and custom conditions.
+
+#### Trigger Architecture
+
+The trigger system includes:
+
+* **Trigger Interface**: Base class for all trigger implementations
+* **Event Types**: Standardized event format for different trigger sources
+* **Monitoring Engine**: Asynchronous monitoring with configurable intervals
+* **Action Dispatcher**: Automatic routing of triggered events to appropriate agents
+
+#### Creating Custom Triggers
+
+The trigger system allows you to create event-driven responses. Here's how to implement custom triggers:
+
+```python
+from messaging_system.core.trigger_interface import TriggerInterface
+from messaging_system.core.trigger_event import TriggerEvent
+import asyncio
+import logging
+from datetime import datetime
+
+class CustomTrigger(TriggerInterface):
+    """Custom trigger implementation example."""
+
+    def __init__(self):
+        self.logger = logging.getLogger(__name__)
+        self.is_monitoring = False
+        self.config = {}
+        self.last_check = None
+
+    async def initialize(self, config: dict) -> bool:
+        """Initialize the trigger with configuration."""
+        self.config = config
+        self.logger.info(f"Initializing {self.__class__.__name__} with config: {config}")
+
+        # Validate configuration
+        required_fields = ['check_interval', 'condition_type']
+        for field in required_fields:
+            if field not in config:
+                self.logger.error(f"Missing required configuration field: {field}")
+                return False
+
+        # Initialize trigger-specific resources
+        self.check_interval = config.get('check_interval', 60)  # Default 60 seconds
+        self.condition_type = config['condition_type']
+
+        return True
+
+    async def start_monitoring(self) -> None:
+        """Start monitoring for trigger conditions."""
+        self.is_monitoring = True
+        self.logger.info(f"Starting monitoring with {self.check_interval}s interval")
+
+        while self.is_monitoring:
+            try:
+                if await self.check_condition():
+                    # Create and dispatch trigger event
+                    event = TriggerEvent(
+                        trigger_id=self.config.get('id', 'custom_trigger'),
+                        event_type=self.condition_type,
+                        timestamp=datetime.now(),
+                        data=await self.get_event_data()
+                    )
+                    await self.dispatch_event(event)
+
+                await asyncio.sleep(self.check_interval)
+
+            except Exception as e:
+                self.logger.error(f"Error in monitoring loop: {e}")
+                await asyncio.sleep(self.check_interval)
+
+    async def check_condition(self) -> bool:
+        """Check if trigger condition is met."""
+        try:
+            # Implement your condition checking logic here
+            # Examples:
+            # - Check API endpoint for new data
+            # - Monitor file system changes
+            # - Check database for updates
+            # - Monitor external services
+
+            current_time = datetime.now()
+
+            # Example: Time-based trigger
+            if self.condition_type == 'time_interval':
+                if self.last_check is None:
+                    self.last_check = current_time
+                    return False
+
+                time_diff = (current_time - self.last_check).total_seconds()
+                trigger_interval = self.config.get('trigger_interval', 3600)  # 1 hour default
+
+                if time_diff >= trigger_interval:
+                    self.last_check = current_time
+                    return True
+
+            # Example: API monitoring trigger
+            elif self.condition_type == 'api_change':
+                # Check API for changes
+                # api_response = await self.check_api()
+                # return api_response.has_changes()
+                pass
+
+            return False
+
+        except Exception as e:
+            self.logger.error(f"Error checking condition: {e}")
+            return False
+
+    async def get_event_data(self) -> dict:
+        """Get additional data for the triggered event."""
+        return {
+            'trigger_type': self.condition_type,
+            'timestamp': datetime.now().isoformat(),
+            'config': self.config
+        }
+
+    async def dispatch_event(self, event: TriggerEvent) -> None:
+        """Dispatch the trigger event to AgenticMaid."""
+        self.logger.info(f"Dispatching trigger event: {event.event_type}")
+        # This should integrate with AgenticMaid's event handling system
+        # Example: Send to message queue or directly invoke agent
+        pass
+
+    async def stop_monitoring(self) -> None:
+        """Stop the monitoring process."""
+        self.is_monitoring = False
+        self.logger.info("Stopped monitoring")
+```
+
+#### Trigger Registration
+
+Register your custom trigger with the system:
+
+```python
+from messaging_system.core.trigger_registry import TriggerRegistry
+
+# Register your custom trigger
+TriggerRegistry.register_trigger('custom', CustomTrigger)
+
+# Use in configuration
+config = {
+    "messaging_triggers": {
+        "my_custom_trigger": {
+            "type": "custom",
+            "enabled": True,
+            "config": {
+                "check_interval": 30,
+                "condition_type": "time_interval",
+                "trigger_interval": 1800
+            }
+        }
+    }
+}
+```
+
+#### Solana Wallet Monitoring
+
+For cryptocurrency applications, you can monitor Solana wallets:
+
+```json
+{
+  "messaging_triggers": {
+    "solana_monitor": {
+      "type": "solana_wallet",
+      "enabled": true,
+      "config": {
+        "wallet_addresses": ["wallet_address_1", "wallet_address_2"],
+        "rpc_endpoint": "https://api.mainnet-beta.solana.com",
+        "check_interval": 30,
+        "min_sol_amount": 0.1
+      }
+    }
+  }
+}
+```
+
+### Basic Usage Examples
+
+#### Example 1: Simple Chat Bot
+
+```python
+import asyncio
+from client import AgenticMaid
+
+async def simple_chatbot():
+    config = {
+        "ai_services": {
+            "default_service": {
+                "provider": "Google",
+                "model": "gemini-2.5-pro",
+                "api_key": "your_api_key"
+            }
+        }
+    }
+
+    maid = AgenticMaid(config)
+    await maid.async_initialize()
+
+    response = await maid.run_mcp_interaction(
+        messages=[{"role": "user", "content": "Hello, how are you?"}],
+        llm_service_name="default_service"
+    )
+    print(response)
+
+asyncio.run(simple_chatbot())
+```
+
+#### Example 2: Scheduled Task Execution
+
+```python
+import asyncio
+from client import AgenticMaid
+
+async def scheduled_tasks():
+    config = {
+        "ai_services": {
+            "task_service": {
+                "provider": "Google",
+                "model": "gemini-2.5-flash",
+                "api_key": "your_api_key"
+            }
+        },
+        "scheduled_tasks": [
+            {
+                "name": "daily_summary",
+                "enabled": true,
+                "cron": "0 9 * * *",
+                "llm_service_name": "task_service",
+                "system_prompt": "You are a helpful assistant that creates daily summaries.",
+                "user_prompt": "Create a summary of today's activities."
+            }
+        ]
+    }
+
+    maid = AgenticMaid(config)
+    await maid.async_initialize()
+    await maid.async_run_all_enabled_scheduled_tasks()
+
+asyncio.run(scheduled_tasks())
+```
+
+#### Example 3: Multi-Agent Dispatch
+
+```python
+import asyncio
+from client import AgenticMaid
+
+async def multi_agent_example():
+    config = {
+        "ai_services": {
+            "orchestrator_service": {
+                "provider": "Google",
+                "model": "gemini-2.5-pro",
+                "api_key": "your_api_key"
+            }
+        },
+        "multi_agent_dispatch": {
+            "enabled": true,
+            "default_mode": "sync",
+            "allowed_invocations": {
+                "orchestrator": ["analyst", "reporter"],
+                "analyst": [],
+                "reporter": []
+            }
+        },
+        "agents": {
+            "orchestrator": {
+                "llm_service_name": "orchestrator_service",
+                "system_prompt": "You coordinate tasks between analyst and reporter agents."
+            },
+            "analyst": {
+                "llm_service_name": "orchestrator_service",
+                "system_prompt": "You analyze data and provide insights."
+            },
+            "reporter": {
+                "llm_service_name": "orchestrator_service",
+                "system_prompt": "You create reports based on analysis."
+            }
+        }
+    }
+
+    maid = AgenticMaid(config)
+    await maid.async_initialize()
+
+    # The orchestrator can dispatch tasks to other agents
+    response = await maid.run_mcp_interaction(
+        messages=[{"role": "user", "content": "Analyze the latest market data and create a report."}],
+        llm_service_name="orchestrator_service",
+        agent_key="orchestrator"
+    )
+    print(response)
+
+asyncio.run(multi_agent_example())
+```
+
+## Configuration Requirements
+
+### Minimum Configuration
+
+The minimum configuration requires at least one AI service:
+
+```json
+{
+  "ai_services": {
+    "default_service": {
+      "provider": "Google",
+      "model": "gemini-2.5-pro",
+      "api_key": "your_api_key"
+    }
+  },
+  "default_llm_service_name": "default_service"
+}
+```
+
+### Environment Variables
+
+Set these environment variables for secure API key management:
+
+```bash
+# AI Service API Keys
+GOOGLE_API_KEY=your_google_api_key
+OPENAI_API_KEY=your_openai_api_key
+ANTHROPIC_API_KEY=your_anthropic_api_key
+
+# Optional: Override specific configuration values
+APP_MEMORY_PROTOCOL_ENABLED=true
+APP_MULTI_AGENT_DISPATCH_ENABLED=true
+```
+
+### MCP Server Configuration
+
+To use MCP servers, configure them in your config file:
+
+```json
+{
+  "mcp_servers": {
+    "local_server": {
+      "adapter_type": "fastapi",
+      "base_url": "http://localhost:8001/mcp/v1",
+      "name": "Local MCP Server",
+      "description": "Local development MCP server"
+    }
+  }
+}
+```
+
+## Examples Directory
+
+The `examples/` directory contains comprehensive examples and documentation:
+
+* **`examples/demos/`**: Complete working examples and demo applications
+* **`examples/tests/`**: Test scripts and validation tools
+* **`examples/configs/`**: Example configuration files for different use cases
+* **`examples/scripts/`**: Utility scripts and batch files
+* **`examples/docs/`**: Detailed documentation for specific implementations
+* **`examples/logs/`**: Example log files from demo runs
+
+### Running Examples
+
+To run the examples:
+
+1. **Direct Invocation Example**:
+   ```bash
+   cd examples/demos
+   python direct_invocation_example.py
+   ```
+
+2. **Telegram Bot Example**:
+   ```bash
+   cd examples/tests
+   python test_telegram_bot.py
+   ```
+
+3. **Messaging System Example**:
+   ```bash
+   cd examples/demos
+   python messaging_system_example.py
+   ```
 
 ## License
 

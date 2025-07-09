@@ -1,0 +1,50 @@
+# Include the README and license files
+include README.md
+include LICENSE
+
+# Include configuration files
+include requirements.txt
+include pyproject.toml
+include setup.py
+
+# Include examples directory
+recursive-include examples *.py
+recursive-include examples *.json
+recursive-include examples *.md
+recursive-include examples *.txt
+recursive-include examples *.bat
+
+# Include package data
+recursive-include agenticmaid *.json
+recursive-include agenticmaid *.md
+recursive-include agenticmaid *.txt
+
+# Exclude compiled Python files
+global-exclude *.pyc
+global-exclude *.pyo
+global-exclude *.pyd
+global-exclude __pycache__
+global-exclude *.so
+global-exclude *.dylib
+
+# Exclude development and testing files
+exclude .gitignore
+exclude .pre-commit-config.yaml
+recursive-exclude tests *
+recursive-exclude .git *
+recursive-exclude .github *
+recursive-exclude .vscode *
+recursive-exclude .idea *
+
+# Exclude logs and temporary files
+recursive-exclude logs *
+recursive-exclude memory *
+recursive-exclude .rooroo *
+exclude *.log
+exclude *.tmp
+exclude *.temp
+
+# Exclude OS-specific files
+exclude .DS_Store
+exclude Thumbs.db
+exclude desktop.ini

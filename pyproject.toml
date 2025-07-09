@@ -1,0 +1,159 @@
+[build-system]
+requires = ["setuptools>=45", "wheel", "setuptools_scm[toml]>=6.2"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "agenticmaid"
+dynamic = ["version"]
+description = "A Python framework for building reactive, multi-agent systems"
+readme = "README.md"
+license = {text = "MIT"}
+authors = [
+    {name = "AgenticMaid Team", email = "contact@agenticmaid.com"}
+]
+maintainers = [
+    {name = "AgenticMaid Team", email = "contact@agenticmaid.com"}
+]
+keywords = [
+    "ai", "agents", "multi-agent", "mcp", "chatbot", "automation", 
+    "llm", "openai", "anthropic", "google", "gemini", "claude",
+    "telegram", "messaging", "reactive", "async", "framework"
+]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.8",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+    "Topic :: Communications :: Chat",
+    "Topic :: System :: Distributed Computing",
+]
+requires-python = ">=3.8"
+dependencies = [
+    "python-dotenv>=0.19.0",
+    "langchain-mcp-adapters>=0.1.0",
+    "langgraph>=0.1.0",
+    "schedule>=1.2.0",
+    "langchain-core>=0.1.0",
+    "langchain-openai>=0.1.0",
+    "langchain-anthropic>=0.1.0",
+    "fastapi>=0.100.0",
+    "pydantic>=2.0.0",
+    "uvicorn[standard]>=0.20.0",
+    "chromadb>=0.4.0",
+    "aiofiles>=23.0.0",
+    "httpx>=0.24.0",
+    "asyncio-mqtt>=0.13.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=6.0",
+    "pytest-asyncio>=0.18.0",
+    "black>=22.0",
+    "flake8>=4.0",
+    "mypy>=0.950",
+    "pre-commit>=2.20.0",
+]
+telegram = [
+    "python-telegram-bot>=20.0",
+]
+solana = [
+    "solana>=0.30.0",
+    "solders>=0.18.0",
+]
+all = [
+    "python-telegram-bot>=20.0",
+    "solana>=0.30.0",
+    "solders>=0.18.0",
+]
+
+[project.scripts]
+agenticmaid = "agenticmaid.cli:main"
+agenticmaid-api = "agenticmaid.api:main"
+
+[project.urls]
+Homepage = "https://github.com/agenticmaid/agenticmaid"
+Documentation = "https://github.com/agenticmaid/agenticmaid#readme"
+Repository = "https://github.com/agenticmaid/agenticmaid"
+"Bug Reports" = "https://github.com/agenticmaid/agenticmaid/issues"
+Changelog = "https://github.com/agenticmaid/agenticmaid/blob/main/CHANGELOG.md"
+
+[tool.setuptools]
+packages = ["agenticmaid"]
+
+[tool.setuptools.dynamic]
+version = {attr = "agenticmaid.__version__"}
+
+[tool.setuptools.package-data]
+agenticmaid = ["*.json", "*.md", "*.txt"]
+
+[tool.black]
+line-length = 88
+target-version = ['py38']
+include = '\.pyi?$'
+extend-exclude = '''
+/(
+  # directories
+  \.eggs
+  | \.git
+  | \.hg
+  | \.mypy_cache
+  | \.tox
+  | \.venv
+  | build
+  | dist
+)/
+'''
+
+[tool.mypy]
+python_version = "3.8"
+warn_return_any = true
+warn_unused_configs = true
+disallow_untyped_defs = true
+disallow_incomplete_defs = true
+check_untyped_defs = true
+disallow_untyped_decorators = true
+no_implicit_optional = true
+warn_redundant_casts = true
+warn_unused_ignores = true
+warn_no_return = true
+warn_unreachable = true
+strict_equality = true
+
+[tool.pytest.ini_options]
+minversion = "6.0"
+addopts = "-ra -q --strict-markers"
+testpaths = [
+    "tests",
+    "examples/tests",
+]
+asyncio_mode = "auto"
+
+[tool.coverage.run]
+source = ["agenticmaid"]
+omit = [
+    "*/tests/*",
+    "*/examples/*",
+]
+
+[tool.coverage.report]
+exclude_lines = [
+    "pragma: no cover",
+    "def __repr__",
+    "if self.debug:",
+    "if settings.DEBUG",
+    "raise AssertionError",
+    "raise NotImplementedError",
+    "if 0:",
+    "if __name__ == .__main__.:",
+    "class .*\\bProtocol\\):",
+    "@(abc\\.)?abstractmethod",
+]
